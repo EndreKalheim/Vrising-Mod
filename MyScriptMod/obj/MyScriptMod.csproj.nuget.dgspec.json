@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\MyScriptMod.csproj": {}
+    "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\MyScriptMod.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\MyScriptMod.csproj": {
+    "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\MyScriptMod.csproj": {
       "version": "0.1.10",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\MyScriptMod.csproj",
+        "projectUniqueName": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\MyScriptMod.csproj",
         "projectName": "MyScriptMod",
-        "projectPath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\MyScriptMod.csproj",
+        "projectPath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\MyScriptMod.csproj",
         "packagesPath": "C:\\Users\\Endre\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\obj\\",
+        "outputPath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\NuGet.Config",
+          "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\NuGet.Config",
           "C:\\Users\\Endre\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"

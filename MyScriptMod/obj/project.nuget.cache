@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "MmIhXmHJ/EQ=",
+  "dgSpecHash": "8txVrDEcmYY=",
   "success": true,
-  "projectFilePath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\VrisingMod\\MyScriptMod\\MyScriptMod.csproj",
+  "projectFilePath": "C:\\Users\\Endre\\OneDrive\\Dokumenter\\sem3\\modProd\\Vrising-Mod\\MyScriptMod\\MyScriptMod.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Endre\\.nuget\\packages\\asmresolver\\5.5.0\\asmresolver.5.5.0.nupkg.sha512",
     "C:\\Users\\Endre\\.nuget\\packages\\asmresolver.dotnet\\5.5.0\\asmresolver.dotnet.5.5.0.nupkg.sha512",
