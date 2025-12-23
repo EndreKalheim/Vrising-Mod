@@ -6,7 +6,7 @@ namespace MyScriptMod
     public class Menu : MonoBehaviour
     {
         private bool _isVisible = false;
-        private Rect _windowRect = new Rect(50, 50, 350, 500);
+        private Rect _windowRect = new Rect(50, 50, 400, 550); // Made slightly wider
         private int _currentTab = 0;
 
         // Script Creator State
@@ -16,7 +16,6 @@ namespace MyScriptMod
 
         private void Update()
         {
-            // Changed to Home key as requested
             if (Input.GetKeyDown(KeyCode.Home)) _isVisible = !_isVisible;
         }
 
@@ -24,13 +23,10 @@ namespace MyScriptMod
         {
             if (!_isVisible) return;
 
-            // Using a try-catch block here helps prevent the entire game from 
-            // lagging out if the IMGUI layout mismatches during a frame.
             try {
-                _windowRect = GUI.Window(0, _windowRect, (GUI.WindowFunction)DrawWindow, "Final Macro - V Rising");
-            } catch (System.Exception) {
-                // Ignore layout errors to prevent crashing
-            }
+                GUI.backgroundColor = Color.black;
+                _windowRect = GUI.Window(0, _windowRect, (GUI.WindowFunction)DrawWindow, "V Rising Mod Menu");
+            } catch (System.Exception) { }
         }
 
         private void DrawWindow(int id)
@@ -40,13 +36,12 @@ namespace MyScriptMod
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("ESP")) _currentTab = 0;
             if (GUILayout.Button("Macros")) _currentTab = 1;
-            if (GUILayout.Button("Script Creator")) _currentTab = 2;
+            if (GUILayout.Button("Scripts")) _currentTab = 2;
             if (GUILayout.Button("Settings")) _currentTab = 3;
             GUILayout.EndHorizontal();
 
             GUILayout.Space(10);
 
-            // Using ScrollView prevents the "Control Count" error when lists get long
             switch (_currentTab)
             {
                 case 0: DrawEspTab(); break;
@@ -61,17 +56,24 @@ namespace MyScriptMod
             var esp = GetComponent<EspFeature>();
             if (esp == null) return;
 
-            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable ESP Master");
-            esp.ShowTracers = GUILayout.Toggle(esp.ShowTracers, "Show Line Tracers");
-            esp.ShowBoxes = GUILayout.Toggle(esp.ShowBoxes, "Show Boxes");
+            GUILayout.Label("<b>ESP Visuals</b>");
+            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable Master ESP");
+            esp.ShowTracers = GUILayout.Toggle(esp.ShowTracers, "Show Tracers (Center)");
+            esp.ShowBoxes = GUILayout.Toggle(esp.ShowBoxes, "Show 2D Boxes");
             
-            GUILayout.Label($"Scan Range: {Mathf.RoundToInt(esp.ScanRadius)}m");
-            esp.ScanRadius = GUILayout.HorizontalSlider(esp.ScanRadius, 10f, 300f);
+            GUILayout.Space(5);
+            GUILayout.Label($"Max Distance: {Mathf.RoundToInt(esp.ScanRadius)}m");
+            esp.ScanRadius = GUILayout.HorizontalSlider(esp.ScanRadius, 10f, 400f);
+
+            GUILayout.Space(5);
+            GUILayout.Label($"Ignore Local Player Radius: {esp.IgnoreRadius:F1}m");
+            GUILayout.Label("<color=grey>(Increase this if you see lines on yourself)</color>");
+            esp.IgnoreRadius = GUILayout.HorizontalSlider(esp.IgnoreRadius, 0.5f, 10f);
         }
 
         private void DrawMacroTab()
         {
-            GUILayout.Label("Standard Macro (L Key)");
+            GUILayout.Label("<b>Standard Macro (L Key)</b>");
             GUILayout.Label($"O+9 Delay: {Plugin.DelayAfterO9.Value:F2}");
             Plugin.DelayAfterO9.Value = GUILayout.HorizontalSlider(Plugin.DelayAfterO9.Value, 0.1f, 1.0f);
         }
@@ -99,7 +101,6 @@ namespace MyScriptMod
                     Name = _newScriptName, 
                     TriggerKey = (int)_newScriptKey 
                 };
-                // Adding a default wait action so the script isn't empty
                 newProfile.Actions.Add(new ScriptAction { Type = ScriptAction.ActionType.Wait, Duration = 1.0f });
                 
                 ScriptManager.Instance.Profiles.Add(newProfile);
@@ -118,18 +119,45 @@ namespace MyScriptMod
 
         private void DrawSettingsTab()
         {
-            if (GUILayout.Button("DEBUG: Reset Menu Position"))
+            GUILayout.Label("<b>Overlay Settings</b>");
+            
+            // Cooldown Overlay Control
+            var cd = GetComponent<CooldownOverlay>();
+            if (cd != null)
             {
-                _windowRect = new Rect(50, 50, 350, 500);
+                cd.ShowOverlay = GUILayout.Toggle(cd.ShowOverlay, "Show Cooldown Overlay");
             }
 
+            GUILayout.Space(10);
+            GUILayout.Label("<b>Camera / ZoomHack</b>");
+            
+            // ZoomHack Control
+            var zoom = GetComponent<ZoomHack>();
+            if (zoom != null)
+            {
+                GUILayout.Label("<b>Camera & Map</b>");
+                zoom.Enabled = GUILayout.Toggle(zoom.Enabled, "Enable Camera Mods");
+                
+                // Main FOV
+                GUILayout.Label($"Game FOV: {Mathf.RoundToInt(zoom.CurrentFov)}");
+                zoom.CurrentFov = GUILayout.HorizontalSlider(zoom.CurrentFov, 60f, 140f);
+
+                GUILayout.Space(5);
+
+                // Minimap Zoom
+                zoom.EnableMinimapZoom = GUILayout.Toggle(zoom.EnableMinimapZoom, "Enable Minimap Zoom");
+                GUILayout.Label($"Minimap Zoom: {zoom.MinimapSize:F1}");
+                // 5 is usually close, 20 is far
+                zoom.MinimapSize = GUILayout.HorizontalSlider(zoom.MinimapSize, 5f, 30f); 
+            }
+
+            GUILayout.Space(20);
+            GUILayout.Label("<b>System</b>");
             if (GUILayout.Button("RESTART: Re-load All Configs"))
             {
                 ScriptManager.Instance.LoadScripts();
                 Plugin.Instance.Config.Reload();
             }
-
-            if (GUILayout.Button("Close Menu (Home)")) _isVisible = false;
         }
     }
 }

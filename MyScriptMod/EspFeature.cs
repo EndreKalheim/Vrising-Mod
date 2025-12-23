@@ -7,14 +7,21 @@ namespace MyScriptMod
     {
         public bool IsEspActive = false;
         public bool ShowTracers = true;
-        public bool ShowBoxes = false;
-        public float ScanRadius = 80f;
-        public float UpdateInterval = 1.0f; // Faster update for PvP
+        public bool ShowBoxes = true;
         
-        // Updated Filter Keywords for V Rising
+        public float ScanRadius = 150f;
+        public float IgnoreRadius = 4.0f; // Radius around camera to ignore (Local Player)
+        public float UpdateInterval = 0.5f; 
+        
+        // Exact names based on your request + standard players
         public List<string> FilterKeywords = new List<string>() 
         { 
-            "VampireMale", "VampireFemale", "HYB_Vampire", "HYB_Creature", "CHAR_", "Player" 
+            "VampireMale", 
+            "VampireFemale", 
+            "HYB_Vampire_S",      // Transformation
+            "HYB_CreatureSp",     // Transformation 
+            "HYB_CreatureHorse",  // Horse
+            "Player"              // Fallback
         };
 
         private List<Transform> _cachedTargets = new List<Transform>();
@@ -38,28 +45,44 @@ namespace MyScriptMod
             _cachedTargets.Clear();
             if (_mainCamera == null) return;
 
+            // Find all objects
             var allObjects = GameObject.FindObjectsOfType<GameObject>();
-            Vector3 myPos = _mainCamera.transform.position;
+            Vector3 camPos = _mainCamera.transform.position;
 
             foreach (var obj in allObjects)
             {
                 if (obj == null) continue;
 
-                // 1. DISTANCE CHECK
-                float dist = Vector3.Distance(myPos, obj.transform.position);
-                
-                // IGNORE SELF: If it's within 1.5m, it's likely your own character or spotlight
-                if (dist < 2.0f) continue; 
-                if (dist > ScanRadius) continue;
+                string objName = obj.name;
 
-                // 2. NAME FILTER
+                // 1. FILTERING (Optimization: Check Name First)
+                
+                // IGNORE: Spotlights (prevents double text)
+                if (objName.Contains("Spotlight") || objName.Contains("Point Light")) continue;
+
+                // MATCH: Check against keyword list
                 bool isMatch = false;
                 foreach (var k in FilterKeywords)
                 {
-                    if (obj.name.Contains(k)) { isMatch = true; break; }
+                    if (objName.Contains(k)) 
+                    { 
+                        isMatch = true; 
+                        break; 
+                    }
                 }
+                if (!isMatch) continue;
 
-                if (isMatch) _cachedTargets.Add(obj.transform);
+                // 2. DISTANCE CHECKS
+                float dist = Vector3.Distance(camPos, obj.transform.position);
+                
+                // IGNORE SELF: If it is too close to the camera logic, it's you.
+                // Adjust "IgnoreRadius" in menu if you still see yourself.
+                if (dist < IgnoreRadius) continue; 
+                
+                // Max Range Check
+                if (dist > ScanRadius) continue;
+
+                _cachedTargets.Add(obj.transform);
             }
         }
 
@@ -71,24 +94,51 @@ namespace MyScriptMod
             {
                 if (target == null) continue;
 
-                Vector3 screenPos = _mainCamera.WorldToScreenPoint(target.position);
-                if (screenPos.z > 0) // Target is in front of camera
+                Vector3 worldPos = target.position;
+                Vector3 screenPos = _mainCamera.WorldToScreenPoint(worldPos);
+
+                if (screenPos.z > 0) // In front of camera
                 {
                     float guiX = screenPos.x;
-                    float guiY = Screen.height - screenPos.y;
+                    float guiY = Screen.height - screenPos.y; // Invert Y for GUI
 
-                    // Draw Line
+                    // Calculate Distance
+                    float dist = Vector3.Distance(_mainCamera.transform.position, worldPos);
+
+                    // --- DRAW TRACERS (FROM CENTER) ---
                     if (ShowTracers)
                     {
-                        DrawSimpleLine(new Vector2(Screen.width / 2, Screen.height), new Vector2(guiX, guiY), Color.red);
+                        // Screen.height / 2 is the center Y
+                        DrawSimpleLine(new Vector2(Screen.width / 2, Screen.height / 2), new Vector2(guiX, guiY), Color.red);
                     }
 
-                    // Draw Text with shadow (to make it readable)
-                    string info = $"{target.name.Replace("(Clone)", "")} [{(int)screenPos.z}m]";
+                    // --- DRAW BOXES (2D APPROXIMATION) ---
+                    if (ShowBoxes)
+                    {
+                        // Estimate Head Position (approx 2 units up)
+                        Vector3 headPos = worldPos + Vector3.up * 2.2f; 
+                        Vector3 screenHead = _mainCamera.WorldToScreenPoint(headPos);
+                        float headY = Screen.height - screenHead.y;
+
+                        float boxHeight = guiY - headY;
+                        float boxWidth = boxHeight / 2f;
+
+                        DrawBoxOutline(new Rect(guiX - (boxWidth/2), headY, boxWidth, boxHeight), Color.green, 1);
+                    }
+
+                    // --- DRAW TEXT ---
+                    string cleanName = target.name
+                        .Replace("CHAR_", "")
+                        .Replace("HYB_", "")
+                        .Replace("(Clone)", "")
+                        .Replace("Vampire", "");
+                        
+                    string info = $"{cleanName}\n[{Mathf.RoundToInt(dist)}m]";
+                    
                     GUI.color = Color.black;
-                    GUI.Label(new Rect(guiX + 1, guiY - 21, 150, 20), info); // Shadow
+                    GUI.Label(new Rect(guiX + 1, guiY - 39, 150, 40), info); // Shadow
                     GUI.color = Color.cyan;
-                    GUI.Label(new Rect(guiX, guiY - 20, 150, 20), info);
+                    GUI.Label(new Rect(guiX, guiY - 40, 150, 40), info);
                 }
             }
         }
@@ -100,8 +150,16 @@ namespace MyScriptMod
             float angle = Mathf.Atan2(end.y - start.y, end.x - start.x) * Mathf.Rad2Deg;
             float length = Vector2.Distance(start, end);
             GUIUtility.RotateAroundPivot(angle, start);
-            GUI.DrawTexture(new Rect(start.x, start.y, length, 2f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(start.x, start.y, length, 1f), Texture2D.whiteTexture);
             GUI.matrix = matrix;
+        }
+
+        private void DrawBoxOutline(Rect rect, Color color, float width)
+        {
+            GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, width), Texture2D.whiteTexture); // Top
+            GUI.DrawTexture(new Rect(rect.x, rect.y + rect.height - width, rect.width, width), Texture2D.whiteTexture); // Bottom
+            GUI.DrawTexture(new Rect(rect.x, rect.y, width, rect.height), Texture2D.whiteTexture); // Left
+            GUI.DrawTexture(new Rect(rect.x + rect.width - width, rect.y, width, rect.height), Texture2D.whiteTexture); // Right
         }
     }
 }
