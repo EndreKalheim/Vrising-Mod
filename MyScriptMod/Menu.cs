@@ -54,10 +54,7 @@ namespace MyScriptMod
             GUILayout.Label($"Aim Circle Size: {esp.AimFov:F0}px");
             esp.AimFov = GUILayout.HorizontalSlider(esp.AimFov, 50f, 1000f);
 
-            if (GUILayout.Button("DEBUG: Move Mouse to Center"))
-            {
-                esp.TestMouseMove();
-            }
+
             
             GUILayout.Space(10);
             GUILayout.Label("<b>Lists Management</b>");

@@ -193,7 +193,8 @@ namespace MyScriptMod
                 if (n.Contains("Hair") || 
                     n.Contains("Face") || 
                     n.Contains("HeadGear") || 
-                    n.Contains("Dummy") || // Logic to ignore Dummies
+                    n.Contains("Dummy") || 
+                    n.Contains("Accessories") || // New Exclusion
                     IgnoreList.Contains(cleanName)) continue;
 
                 // Inclusions
@@ -309,6 +310,14 @@ namespace MyScriptMod
                 float lerpVal = Time.deltaTime * AimSmoothness;
                 lerpVal = Mathf.Clamp01(lerpVal);
  
+                // Deadzone Check (Stop jitter if very close)
+                Vector2 targetGuiPos = new Vector2(targetX, targetY);
+                if (Vector2.Distance(mouseGui, targetGuiPos) < 15f) // ~15px deadzone
+                {
+                    // Within deadzone, do not assist
+                    return;
+                }
+ 
                 float nextX = Mathf.Lerp(currentX, targetX, lerpVal);
                 float nextY = Mathf.Lerp(currentY, targetY, lerpVal);
                 
@@ -324,12 +333,15 @@ namespace MyScriptMod
             {
                 if (t == null) continue;
 
-                // F3 Mode: If enabled, ONLY show what Aim Assist would track
+                // F3 Mode: If enabled, ONLY show what Aim Assist would track (+ Shapeshift)
                 if (ShowOnlyAimTargets)
                 {
-                    if (!t.name.Contains("VampireMale") && !t.name.Contains("VampireFemale")) continue;
-                    // Filter headgear also here, though already filtered in Scan...
-                    if (t.name.Contains("HeadGear")) continue; 
+                    bool isAimTarget = t.name.Contains("VampireMale") || t.name.Contains("VampireFemale");
+                    bool isShapeshift = t.name.Contains("HYB_Vampire_Shapeshift");
+                    
+                    if (!isAimTarget && !isShapeshift) continue;
+                    
+                    if (t.name.Contains("HeadGear") || t.name.Contains("Accessories")) continue; 
                 }
 
                 Vector3 worldPos = t.position;

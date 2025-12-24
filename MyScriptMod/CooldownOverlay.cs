@@ -8,10 +8,11 @@ namespace MyScriptMod
     {
         public bool ShowOverlay = true;
         public List<CooldownTracker> Trackers = new List<CooldownTracker>();
+        private string configPath => System.IO.Path.Combine(Application.persistentDataPath, "MyScriptMod_Cooldowns.txt");
 
         private void Start()
         {
-            // My Abilities (Standard Keys)
+            // Defaults
             Trackers.Add(new CooldownTracker(100, "Q", KeyCode.Q, 8f, new Rect(Screen.width/2 - 60, Screen.height - 100, 80, 80)));
             Trackers.Add(new CooldownTracker(101, "E", KeyCode.E, 8f, new Rect(Screen.width/2 + 30, Screen.height - 100, 80, 80)));
             Trackers.Add(new CooldownTracker(102, "Spc", KeyCode.Space, 8f, new Rect(Screen.width/2 - 15, Screen.height - 180, 80, 80)));
@@ -19,6 +20,55 @@ namespace MyScriptMod
             // Mouse Abilities (Extra)
             Trackers.Add(new CooldownTracker(103, "M4", KeyCode.Mouse3, 8f, new Rect(Screen.width/2 - 140, Screen.height - 100, 80, 80)));
             Trackers.Add(new CooldownTracker(104, "M5", KeyCode.Mouse4, 8f, new Rect(Screen.width/2 + 110, Screen.height - 100, 80, 80)));
+            
+            LoadConfig();
+        }
+
+        private void OnDestroy()
+        {
+            SaveConfig();
+        }
+        
+        private void OnApplicationQuit()
+        {
+            SaveConfig();
+        }
+
+        private void SaveConfig()
+        {
+            // Format: ID:Duration:RectX:RectY|ID:Duration:RectX:RectY
+            List<string> lines = new List<string>();
+            foreach(var t in Trackers)
+            {
+                lines.Add($"{t.ID}:{t.Duration}:{t.WindowRect.x}:{t.WindowRect.y}");
+            }
+            System.IO.File.WriteAllText(configPath, string.Join("|", lines));
+        }
+
+        private void LoadConfig()
+        {
+            if (!System.IO.File.Exists(configPath)) return;
+            string data = System.IO.File.ReadAllText(configPath);
+            string[] items = data.Split('|');
+            foreach(var item in items)
+            {
+                if (string.IsNullOrEmpty(item)) continue;
+                string[] parts = item.Split(':');
+                if (parts.Length == 4)
+                {
+                    if (int.TryParse(parts[0], out int id))
+                    {
+                        var t = Trackers.Find(x => x.ID == id);
+                        if (t != null)
+                        {
+                            float.TryParse(parts[1], out t.Duration);
+                            float.TryParse(parts[2], out float rx);
+                            float.TryParse(parts[3], out float ry);
+                            t.WindowRect = new Rect(rx, ry, t.WindowRect.width, t.WindowRect.height);
+                        }
+                    }
+                }
+            }
         }
 
         private void Update()
