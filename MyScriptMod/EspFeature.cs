@@ -14,6 +14,7 @@ namespace MyScriptMod
         public bool EnableAimAssist = false;
         public bool ShowTracers = true;
         public bool ShowBoxes = true;
+        public bool ShowOnlyAimTargets = false; // F3 Toggle logic
         
         public float ScanRadius = 400f; 
         public float IgnoreRadius = 2.0f;
@@ -32,6 +33,8 @@ namespace MyScriptMod
         {
             if (Input.GetKeyDown(KeyCode.F1)) IsEspActive = !IsEspActive;
             if (Input.GetKeyDown(KeyCode.F2)) EnableAimAssist = !EnableAimAssist;
+            if (Input.GetKeyDown(KeyCode.F3)) ShowOnlyAimTargets = !ShowOnlyAimTargets;
+            if (Input.GetKeyDown(KeyCode.F4)) ShowTracers = !ShowTracers;
 
             if (_mainCamera == null) _mainCamera = Camera.main;
 
@@ -112,7 +115,7 @@ namespace MyScriptMod
                 
                 string n = go.name;
                 // Exclusions
-                if (n.Contains("Hair") || n.Contains("Face")) continue;
+                if (n.Contains("Hair") || n.Contains("Face") || n.Contains("HeadGear")) continue;
 
                 // Inclusions
                 bool isMatch = false;
@@ -181,7 +184,8 @@ namespace MyScriptMod
             if (best != null)
             {
                 // Aim at the "Center" of the target (approx height adjustment)
-                Vector3 targetWorld = best.position + new Vector3(0, 1.0f, 0); 
+                // Lowered to 0.5f as requested to aim "a bit lower"
+                Vector3 targetWorld = best.position + new Vector3(0, 0.5f, 0); 
                 Vector3 sPos = _mainCamera.WorldToScreenPoint(targetWorld);
                 
                 float targetX = sPos.x;
@@ -236,6 +240,15 @@ namespace MyScriptMod
             foreach (var t in _cachedTargets)
             {
                 if (t == null) continue;
+
+                // F3 Mode: If enabled, ONLY show what Aim Assist would track
+                if (ShowOnlyAimTargets)
+                {
+                    if (!t.name.Contains("VampireMale") && !t.name.Contains("VampireFemale")) continue;
+                    // Filter headgear also here, though already filtered in Scan...
+                    if (t.name.Contains("HeadGear")) continue; 
+                }
+
                 Vector3 worldPos = t.position;
                 Vector3 screenPos = _mainCamera.WorldToScreenPoint(worldPos);
 
