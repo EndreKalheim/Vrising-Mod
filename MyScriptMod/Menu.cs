@@ -39,15 +39,10 @@ namespace MyScriptMod
             if (esp == null) return;
 
             GUILayout.Label("<b>Visuals (F1)</b>");
-            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable ESP");
+            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable ESP (Master Switch)"); // Restored
             esp.ShowTracers = GUILayout.Toggle(esp.ShowTracers, "Center Tracers (Red)");
             
-            // Range logic removed - Infinite scan enabled
-            GUILayout.Label($"Self-Remove Radius: {esp.SelfCylinderRadius:F1}m");
-            esp.SelfCylinderRadius = GUILayout.HorizontalSlider(esp.SelfCylinderRadius, 0.5f, 10f);
-            
-            esp.ShowDebug = GUILayout.Toggle(esp.ShowDebug, "Show Debug Circle (Yellow)");
-
+            // Visuals
             esp.ShowBoxes = GUILayout.Toggle(esp.ShowBoxes, "2D Red Boxes");
 
             GUILayout.Space(10);
@@ -55,6 +50,14 @@ namespace MyScriptMod
             esp.EnableAimAssist = GUILayout.Toggle(esp.EnableAimAssist, "Enable Mouse-to-Hitbox");
             GUILayout.Label($"Aim Smoothness: {esp.AimSmoothness:F0}");
             esp.AimSmoothness = GUILayout.HorizontalSlider(esp.AimSmoothness, 1f, 30f);
+
+            GUILayout.Label($"Aim Circle Size: {esp.AimFov:F0}px");
+            esp.AimFov = GUILayout.HorizontalSlider(esp.AimFov, 50f, 1000f);
+
+            if (GUILayout.Button("DEBUG: Move Mouse to Center"))
+            {
+                esp.TestMouseMove();
+            }
         }
 
         private void DrawSettingsTab()

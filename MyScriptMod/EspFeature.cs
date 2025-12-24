@@ -15,23 +15,18 @@ namespace MyScriptMod
         public bool ShowTracers = true;
         public bool ShowBoxes = true;
         
-        public float ScanRadius = 300f; // Default higher
+        public float ScanRadius = 400f; 
         public float IgnoreRadius = 2.0f;
-        public float SelfCylinderRadius = 3.0f; 
-        public float AimFov = 200f; 
-        public float AimSmoothness = 5f; // Restored
-        public float PredictionAmount = 5.0f; // Restored (just in case)
-        public bool ShowDebug = false; // Toggle to see exclusion zone
-
+        public float SelfCylinderRadius = 0.5f; // Hardcoded as requested
+        public float AimFov = 200f; // Reduced for semi-close aiming
+        public float AimSmoothness = 15f; // Higher usually means faster in "Lerp(..., dt * Speed)"
+        
         // Strictly the filters you asked for
         public List<string> FilterKeywords = new List<string>() { "Vampire", "CreatureHorse" };
 
         private List<Transform> _cachedTargets = new List<Transform>();
         private Camera _mainCamera;
         private float _lastScanTime;
-        
-        // Debug Data
-        private Vector3? _debugSpotlightPos;
 
         private void Update()
         {
@@ -46,10 +41,16 @@ namespace MyScriptMod
                 _lastScanTime = Time.time;
             }
 
-            if (EnableAimAssist && Input.GetKey(KeyCode.Mouse1))
+            if (EnableAimAssist)
             {
                 DoTopDownAim();
             }
+        }
+
+        public void TestMouseMove()
+        {
+            // Moves mouse to center of screen
+            SetCursorPos(Screen.width / 2, Screen.height / 2);
         }
 
         private void ScanForTargets()
@@ -57,8 +58,7 @@ namespace MyScriptMod
             _cachedTargets.Clear();
             var all = GameObject.FindObjectsOfType<GameObject>();
             
-            // 1. Find Local Player via Spotlight
-            // DEBUG: Log if we find it or not
+            // 1. Find Local Player via Spotlight (or fallback)
             Vector3? localPlayerPos = null;
             
             // Try to find ANY spotlight for now, since names might vary
@@ -103,20 +103,7 @@ namespace MyScriptMod
             }
 
             // Fallback for Debug: If we can't find spotlight, use Camera position projected to ground
-            if (!localPlayerPos.HasValue && _mainCamera != null)
-            {
-                // Raycast to ground? Or just assume ground is y=0 relative to something.
-                // Simplified: Camera + Forward vector on ground
-                 Ray r = new Ray(_mainCamera.transform.position, _mainCamera.transform.forward);
-                 if (Physics.Raycast(r, out RaycastHit hit, 100f))
-                 {
-                     _debugSpotlightPos = hit.point; // Visual debug ONLY
-                 }
-            }
-            else
-            {
-                _debugSpotlightPos = localPlayerPos;
-            }
+
 
             // 2. Filter & Collect Targets
             foreach (var go in all)
@@ -164,29 +151,80 @@ namespace MyScriptMod
 
         private void DoTopDownAim()
         {
+            if (_mainCamera == null) return;
+ 
             Transform best = null;
             float closestToMouse = AimFov;
-            GetCursorPos(out POINT currentP);
-            Vector2 mouseScreen = new Vector2(currentP.X, Screen.height - currentP.Y);
-
+            
+            // Use Unity Mouse Position (Bottom-Left) converted to Top-Left for logic consistency with GUI
+            Vector2 mousePosUnity = Input.mousePosition;
+            Vector2 mouseGui = new Vector2(mousePosUnity.x, Screen.height - mousePosUnity.y);
+ 
             foreach (var t in _cachedTargets)
             {
                 if (t == null) continue;
+                
+                // SKip Horses / Non-Players for AimAssist
+                // Allow only VampireMale or VampireFemale
+                if (!t.name.Contains("VampireMale") && !t.name.Contains("VampireFemale")) continue;
+
                 Vector3 sPos = _mainCamera.WorldToScreenPoint(t.position);
                 if (sPos.z < 0) continue;
-
-                float dist = Vector2.Distance(mouseScreen, new Vector2(sPos.x, sPos.y));
+ 
+                // 2D distance on screen (GUI coords)
+                Vector2 sPosGui = new Vector2(sPos.x, Screen.height - sPos.y);
+                float dist = Vector2.Distance(mouseGui, sPosGui);
+                
                 if (dist < closestToMouse) { closestToMouse = dist; best = t; }
             }
-
+ 
             if (best != null)
             {
-                Vector3 sPos = _mainCamera.WorldToScreenPoint(best.position);
+                // Aim at the "Center" of the target (approx height adjustment)
+                Vector3 targetWorld = best.position + new Vector3(0, 1.0f, 0); 
+                Vector3 sPos = _mainCamera.WorldToScreenPoint(targetWorld);
+                
                 float targetX = sPos.x;
-                float targetY = Screen.height - sPos.y;
+                float targetY = Screen.height - sPos.y; // Unity Screen to GUI/Win32 SetCursorPos Y (Top-Down)
 
-                float nextX = Mathf.Lerp(currentP.X, targetX, 1f / AimSmoothness);
-                float nextY = Mathf.Lerp(currentP.Y, targetY, 1f / AimSmoothness);
+                // The OS SetCursorPos expects Top-Down screen coordinates.
+                // Unity Input.mousePosition is Window-relative Bottom-Up.
+                // We need to map Unity GUI coordinates (Window Relative) to Screen Coordinates if we use SetCursorPos?
+                // Actually SetCursorPos is GLOBAL. If we are windowed, this is tricky.
+                
+                // However, user said "true crosshair is above circle".
+                // If we use Input.mousePosition for circle, the circle will match the game cursor.
+                // But SetCursorPos moves the OS cursor.
+                // If we are Fullscreen, Window 0,0 is Screen 0,0.
+                
+                // Let's assume user is Fullscreen or Borderless.
+                // GetCursorPos(out POINT p) -> This is GLOBAL.
+                
+                // Let's rely on the previous lerp but utilizing Unity mouse pos for the Start Point?
+                // No, SetCursorPos needs Global.
+                GetCursorPos(out POINT currentP); // We still need this for the "Current" OS position to lerp FROM.
+                
+                // But we must calculate "Target" in Global space too?
+                // If WorldToScreenPoint returns window-relative...
+                
+                // If the user's circle was offset, it means GetCursorPos (Global) != OnGUI (Window).
+                // Changing Circle to use Input.mousePosition (Window) fixes the visual Circle.
+                
+                // Now for the actual movement.
+                // If we want to move cursor to 'targetX/Y' (which are Window coords),
+                // we need to offset them by Window Position if we are windowed.
+                // But we don't have window position easily.
+                
+                // IF we validly assume Fullscreen:
+                float currentX = currentP.X;
+                float currentY = currentP.Y;
+                
+                float lerpVal = Time.deltaTime * AimSmoothness;
+                lerpVal = Mathf.Clamp01(lerpVal);
+ 
+                float nextX = Mathf.Lerp(currentX, targetX, lerpVal);
+                float nextY = Mathf.Lerp(currentY, targetY, lerpVal);
+                
                 SetCursorPos((int)nextX, (int)nextY);
             }
         }
@@ -226,19 +264,33 @@ namespace MyScriptMod
                     }
 
                     // Label
-                    GUI.color = Color.white;
                     GUI.Label(new Rect(guiX, guiY + 5, 150, 20), t.name.Replace("(Clone)",""));
                 }
             }
 
-            // DEBUG DRAWING
-            if (ShowDebug && _debugSpotlightPos.HasValue)
-            {
-                Vector3 center = _debugSpotlightPos.Value;
-                // We draw a rough 2D circle on the screen to show where the exclusion cylinder is
-                DrawWorldCircle(center, SelfCylinderRadius, Color.yellow);
-            }
+                if (EnableAimAssist)
+        {
+            // Use Unity Mouse Position for Drawing (Matches Window Coordinates)
+            Vector2 mousePosUnity = Input.mousePosition;
+            Vector2 mouseGui = new Vector2(mousePosUnity.x, Screen.height - mousePosUnity.y);
+            
+            DrawCircleGUI(mouseGui, AimFov, Color.white);
+            
+            // Debug line is implicit by movement now.
         }
+    }
+
+    private void DrawCircleGUI(Vector2 center, float radius, Color color)
+    {
+         GUI.color = color;
+         Vector2 prev = center + new Vector2(radius, 0);
+         for(int i=1; i<=16; i++) {
+             float a = i * (360f/16f) * Mathf.Deg2Rad;
+             Vector2 next = center + new Vector2(Mathf.Cos(a)*radius, Mathf.Sin(a)*radius);
+             DrawLine(prev, next, color);
+             prev = next;
+         }
+    }
 
         private void DrawWorldCircle(Vector3 center, float radius, Color color)
         {
