@@ -1,102 +1,32 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using BepInEx;
 
 namespace MyScriptMod
 {
     public class CooldownOverlay : MonoBehaviour
     {
         public bool ShowOverlay = true;
-        
-        // Window 1: My Cooldowns
-        public Rect MyRect = new Rect(50, Screen.height - 300, 200, 250);
-        
-        // Window 2: Enemy Cooldowns
-        public Rect EnemyRect = new Rect(Screen.width - 250, 100, 230, 300);
-
-        // Configuration
-        public List<CooldownTracker> MyTrackers = new List<CooldownTracker>();
-        public List<CooldownTracker> EnemyTrackers = new List<CooldownTracker>();
-
-        // State
-        private GameObject _currentTarget;
-        private Camera _cam;
+        public List<CooldownTracker> Trackers = new List<CooldownTracker>();
 
         private void Start()
         {
-            // --- Setup MY Cooldowns (Triggers when I press my own keys) ---
-            // You can adjust these keys to match your actual keybinds
-            MyTrackers.Add(new CooldownTracker { Label = "My Dash", Duration = 8f, TriggerKey = KeyCode.Space });
-            MyTrackers.Add(new CooldownTracker { Label = "My Counter (Q)", Duration = 8f, TriggerKey = KeyCode.Q });
-
-            // --- Setup ENEMY Cooldowns (Manual triggers via Keypad) ---
-            EnemyTrackers.Add(new CooldownTracker { Label = "Enemy Q", Duration = 8f, TriggerKey = KeyCode.Keypad7 });
-            EnemyTrackers.Add(new CooldownTracker { Label = "Enemy E", Duration = 8f, TriggerKey = KeyCode.Keypad8 });
-            EnemyTrackers.Add(new CooldownTracker { Label = "Enemy Space", Duration = 10f, TriggerKey = KeyCode.Keypad9 });
-            EnemyTrackers.Add(new CooldownTracker { Label = "Enemy Ult", Duration = 120f, TriggerKey = KeyCode.KeypadPlus });
+            // My Abilities (Standard Keys)
+            Trackers.Add(new CooldownTracker(100, "Q", KeyCode.Q, 8f, new Rect(Screen.width/2 - 60, Screen.height - 100, 80, 80)));
+            Trackers.Add(new CooldownTracker(101, "E", KeyCode.E, 8f, new Rect(Screen.width/2 + 30, Screen.height - 100, 80, 80)));
+            Trackers.Add(new CooldownTracker(102, "Spc", KeyCode.Space, 8f, new Rect(Screen.width/2 - 15, Screen.height - 180, 80, 80)));
+            
+            // Mouse Abilities (Extra)
+            Trackers.Add(new CooldownTracker(103, "M4", KeyCode.Mouse3, 8f, new Rect(Screen.width/2 - 140, Screen.height - 100, 80, 80)));
+            Trackers.Add(new CooldownTracker(104, "M5", KeyCode.Mouse4, 8f, new Rect(Screen.width/2 + 110, Screen.height - 100, 80, 80)));
         }
 
         private void Update()
         {
-            if (!ShowOverlay) return;
-            if (_cam == null) _cam = Camera.main;
-
-            // 1. Update My Cooldowns
-            UpdateTrackers(MyTrackers);
-
-            // 2. Find Enemy Under Mouse
-            FindTargetUnderMouse();
-
-            // 3. Update Enemy Cooldowns
-            // If we press a trigger key, we reset the timer
-            UpdateTrackers(EnemyTrackers);
-        }
-
-        private void FindTargetUnderMouse()
-        {
-            // Simple logic: Find closest "Player" to the mouse position
-            if (_cam == null) return;
-
-            float bestDist = 150f; // Max pixel distance from mouse
-            GameObject bestTarget = null;
-            Vector2 mousePos = Input.mousePosition;
-
-            // Reuse the logic from your EspFeature if possible, or simple lookup
-            foreach (var go in GameObject.FindObjectsOfType<GameObject>())
+            foreach (var t in Trackers)
             {
-                // Basic filter for Enemy Players
-                if (!go.name.Contains("Vampire") && !go.name.Contains("Player")) continue;
-                if (go.transform.position == _cam.transform.position) continue; // Ignore self (rough check)
-
-                Vector3 screenPos = _cam.WorldToScreenPoint(go.transform.position);
-                if (screenPos.z < 0) continue; // Behind camera
-
-                float dist = Vector2.Distance(mousePos, new Vector2(screenPos.x, screenPos.y));
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestTarget = go;
-                }
-            }
-
-            _currentTarget = bestTarget;
-        }
-
-        private void UpdateTrackers(List<CooldownTracker> list)
-        {
-            foreach (var tracker in list)
-            {
-                if (Input.GetKeyDown(tracker.TriggerKey))
-                {
-                    tracker.CurrentTime = tracker.Duration;
-                }
-
-                if (tracker.CurrentTime > 0)
-                {
-                    tracker.CurrentTime -= Time.deltaTime;
-                    if (tracker.CurrentTime < 0) tracker.CurrentTime = 0;
-                }
+                if (Input.GetKeyDown(t.TriggerKey)) t.CurrentTime = t.Duration;
+                if (t.CurrentTime > 0) t.CurrentTime -= Time.deltaTime;
             }
         }
 
@@ -104,67 +34,80 @@ namespace MyScriptMod
         {
             if (!ShowOverlay) return;
 
-            GUI.backgroundColor = new Color(0, 0, 0, 0.7f);
-
-            // Draw My Window
-            MyRect = GUI.Window(10, MyRect, (GUI.WindowFunction)DrawMyWindow, "My Cooldowns");
-
-            // Draw Enemy Window
-            string title = _currentTarget != null ? $"Target: {_currentTarget.name}" : "No Target";
-            EnemyRect = GUI.Window(11, EnemyRect, (GUI.WindowFunction)DrawEnemyWindow, title);
+            foreach (var t in Trackers)
+            {
+                // Logic for showing: only if cooldown active OR menu says UnlockUI is on
+                if (t.CurrentTime > 0 || Menu.UnlockUI)
+                {
+                    GUI.backgroundColor = Menu.UnlockUI ? new Color(1, 0, 0, 0.5f) : Color.clear;
+                    t.WindowRect = GUI.Window(t.ID, t.WindowRect, (GUI.WindowFunction)DrawSingleTracker, "");
+                }
+            }
         }
 
-        private void DrawMyWindow(int id) { DrawTrackerList(MyTrackers); GUI.DragWindow(); }
-        private void DrawEnemyWindow(int id) { DrawTrackerList(EnemyTrackers); GUI.DragWindow(); }
-
-        private void DrawTrackerList(List<CooldownTracker> list)
+        private void DrawSingleTracker(int id)
         {
-            GUILayout.BeginVertical();
-            foreach (var tracker in list)
+            var t = Trackers.Find(x => x.ID == id);
+            if (t == null) return;
+
+            if (Menu.UnlockUI)
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(tracker.Label, GUILayout.Width(80));
+                // Drag Handle (Header)
+                GUI.color = Color.cyan;
+                GUI.DrawTexture(new Rect(0, 0, 80, 25), Texture2D.whiteTexture);
+                GUI.color = Color.black; 
+                GUI.Label(new Rect(0, 0, 80, 25), "DRAG");
+                GUI.color = Color.white;
 
-                Rect r = GUILayoutUtility.GetRect(100, 20);
-                GUI.Box(r, ""); 
+                // Drag Logic (Must be AFTER drawing if we want to see it, but DragWindow usually consumes events so it might be tricky.
+                // Actually GUI.DragWindow should be called last for the window, but inside the callback it's usually first. 
+                // We keep it first logic-wise, but visual-wise the header represents it).
+                GUI.DragWindow(new Rect(0, 0, 10000, 25)); 
 
-                if (tracker.CurrentTime > 0)
-                {
-                    float pct = tracker.CurrentTime / tracker.Duration;
-                    
-                    var prevColor = GUI.color;
-                    GUI.color = Color.Lerp(Color.green, Color.red, pct);
-                    GUI.DrawTexture(new Rect(r.x, r.y, r.width * pct, r.height), Texture2D.whiteTexture);
-                    GUI.color = prevColor;
-
-                    TextAnchor originalAlignment = GUI.skin.label.alignment;
-                    GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                    GUI.Label(r, tracker.CurrentTime.ToString("F1"));
-                    GUI.skin.label.alignment = originalAlignment;
-                }
-                else
-                {
-                    var prevContentColor = GUI.contentColor;
-                    GUI.contentColor = Color.green;
-                    TextAnchor originalAlignment = GUI.skin.label.alignment;
-                    GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                    GUI.Label(r, "READY");
-                    GUI.skin.label.alignment = originalAlignment;
-                    GUI.contentColor = prevContentColor;
-                }
-
-                GUILayout.EndHorizontal();
-                GUILayout.Space(2);
+                // Value Display
+                GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+                GUI.Label(new Rect(0, 30, 80, 20), t.Duration.ToString("F0") + "s");
+                
+                // Buttons
+                if (GUI.Button(new Rect(5, 55, 30, 20), "-")) t.Duration -= 1f;
+                if (GUI.Button(new Rect(45, 55, 30, 20), "+")) t.Duration += 1f;
+                return;
             }
-            GUILayout.EndVertical();
+
+            // Visual for Cooldown
+            GUI.Box(new Rect(0, 0, 50, 50), "");
+            GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+            GUI.skin.label.fontSize = 20;
+            
+            if (t.CurrentTime > 0)
+            {
+                 GUI.color = Color.red;
+                 GUI.Label(new Rect(0, 0, 50, 50), t.CurrentTime.ToString("F0"));
+            }
+            else
+            {
+                 GUI.color = Color.green;
+                 GUI.Label(new Rect(0, 0, 50, 50), "RDY");
+            }
+
+            GUI.color = Color.white;
+            GUI.skin.label.fontSize = 12;
+            GUI.Label(new Rect(0, 35, 50, 15), t.Label);
         }
     }
 
     public class CooldownTracker
     {
+        public int ID;
         public string Label;
-        public float Duration;
         public KeyCode TriggerKey;
+        public float Duration;
         public float CurrentTime;
+        public Rect WindowRect;
+
+        public CooldownTracker(int id, string label, KeyCode key, float dur, Rect r)
+        {
+            ID = id; Label = label; TriggerKey = key; Duration = dur; WindowRect = r;
+        }
     }
 }
