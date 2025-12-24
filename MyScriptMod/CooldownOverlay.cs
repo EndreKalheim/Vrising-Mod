@@ -66,11 +66,11 @@ namespace MyScriptMod
 
                 // Value Display
                 GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                GUI.Label(new Rect(0, 30, 80, 20), t.Duration.ToString("F0") + "s");
+                GUI.Label(new Rect(0, 30, 80, 20), t.Duration.ToString("F1") + "s");
                 
-                // Buttons
-                if (GUI.Button(new Rect(5, 55, 30, 20), "-")) t.Duration -= 1f;
-                if (GUI.Button(new Rect(45, 55, 30, 20), "+")) t.Duration += 1f;
+                // Buttons (0.1s adjustment)
+                if (GUI.Button(new Rect(5, 55, 30, 20), "-")) t.Duration -= 0.1f;
+                if (GUI.Button(new Rect(45, 55, 30, 20), "+")) t.Duration += 0.1f;
                 return;
             }
 

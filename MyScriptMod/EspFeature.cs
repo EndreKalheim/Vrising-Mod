@@ -24,10 +24,26 @@ namespace MyScriptMod
         
         // Strictly the filters you asked for
         public List<string> FilterKeywords = new List<string>() { "Vampire", "CreatureHorse" };
+        
+        // Lists
+        public HashSet<string> IgnoreList = new HashSet<string>();
+        public HashSet<string> FriendList = new HashSet<string>();
 
         private List<Transform> _cachedTargets = new List<Transform>();
         private Camera _mainCamera;
         private float _lastScanTime;
+        
+        private string configPath => System.IO.Path.Combine(Application.persistentDataPath, "MyScriptMod_Config.json");
+
+        private void Start()
+        {
+            LoadConfig();
+        }
+
+        private void OnDestroy()
+        {
+            SaveConfig();
+        }
 
         private void Update()
         {
@@ -35,6 +51,18 @@ namespace MyScriptMod
             if (Input.GetKeyDown(KeyCode.F2)) EnableAimAssist = !EnableAimAssist;
             if (Input.GetKeyDown(KeyCode.F3)) ShowOnlyAimTargets = !ShowOnlyAimTargets;
             if (Input.GetKeyDown(KeyCode.F4)) ShowTracers = !ShowTracers;
+            
+            // F5: Ignore Entity under mouse
+            if (Input.GetKeyDown(KeyCode.F5))
+            {
+                ToggleList(IgnoreList, "Ignore");
+            }
+            
+            // F6: Friend Entity under mouse
+            if (Input.GetKeyDown(KeyCode.F6))
+            {
+                ToggleList(FriendList, "Friend");
+            }
 
             if (_mainCamera == null) _mainCamera = Camera.main;
 
@@ -48,6 +76,51 @@ namespace MyScriptMod
             {
                 DoTopDownAim();
             }
+        }
+        
+        private void ToggleList(HashSet<string> list, string listName)
+        {
+            Transform t = GetClosestTargetToMouse(100f); // 100px radius tolerance
+            if (t != null)
+            {
+                string cleanName = t.name.Replace("(Clone)", "").Trim();
+                if (list.Contains(cleanName))
+                {
+                    list.Remove(cleanName);
+                    // Debug.Log($"Removed {cleanName} from {listName}");
+                }
+                else
+                {
+                    // If adding to one list, remove from the other to avoid conflicts
+                    if (listName == "Ignore") FriendList.Remove(cleanName);
+                    else IgnoreList.Remove(cleanName);
+                    
+                    list.Add(cleanName);
+                    // Debug.Log($"Added {cleanName} to {listName}");
+                }
+                SaveConfig();
+            }
+        }
+        
+        private Transform GetClosestTargetToMouse(float radius)
+        {
+             if (_mainCamera == null) return null;
+             Vector2 mouse = Input.mousePosition;
+             Vector2 mouseGui = new Vector2(mouse.x, Screen.height - mouse.y);
+             
+             Transform best = null;
+             float closest = radius;
+             
+             foreach(var t in _cachedTargets)
+             {
+                 if (t==null) continue;
+                 Vector3 sPos = _mainCamera.WorldToScreenPoint(t.position);
+                 if (sPos.z < 0) continue;
+                 Vector2 sGui = new Vector2(sPos.x, Screen.height - sPos.y);
+                 float d = Vector2.Distance(mouseGui, sGui);
+                 if (d < closest) { closest = d; best = t; }
+             }
+             return best;
         }
 
         public void TestMouseMove()
@@ -114,8 +187,14 @@ namespace MyScriptMod
                 if (go == null) continue;
                 
                 string n = go.name;
+                string cleanName = n.Replace("(Clone)","").Trim();
+
                 // Exclusions
-                if (n.Contains("Hair") || n.Contains("Face") || n.Contains("HeadGear")) continue;
+                if (n.Contains("Hair") || 
+                    n.Contains("Face") || 
+                    n.Contains("HeadGear") || 
+                    n.Contains("Dummy") || // Logic to ignore Dummies
+                    IgnoreList.Contains(cleanName)) continue;
 
                 // Inclusions
                 bool isMatch = false;
@@ -170,6 +249,10 @@ namespace MyScriptMod
                 // SKip Horses / Non-Players for AimAssist
                 // Allow only VampireMale or VampireFemale
                 if (!t.name.Contains("VampireMale") && !t.name.Contains("VampireFemale")) continue;
+
+                // Skip Friends & Ignored
+                string clean = t.name.Replace("(Clone)", "").Trim();
+                if (IgnoreList.Contains(clean) || FriendList.Contains(clean)) continue;
 
                 Vector3 sPos = _mainCamera.WorldToScreenPoint(t.position);
                 if (sPos.z < 0) continue;
@@ -260,7 +343,9 @@ namespace MyScriptMod
                     // 1. TRACERS - Fixed to Screen Center
                     if (ShowTracers)
                     {
-                        DrawLine(new Vector2(Screen.width / 2, Screen.height / 2), new Vector2(guiX, guiY), Color.red);
+                        Color distColor = Color.red;
+                        if (FriendList.Contains(t.name.Replace("(Clone)","").Trim())) distColor = Color.green;
+                        DrawLine(new Vector2(Screen.width / 2, Screen.height / 2), new Vector2(guiX, guiY), distColor);
                     }
 
                     // 2. BOXES - Old Style 2D Approximation (Red)
@@ -273,11 +358,18 @@ namespace MyScriptMod
                         float boxHeight = guiY - headY;
                         float boxWidth = boxHeight / 1.5f; // Slightly wider for V-Rising models
 
-                        DrawBoxOutline(new Rect(guiX - (boxWidth/2), headY, boxWidth, boxHeight), Color.red, 2f);
-                    }
+                        Color boxColor = Color.red;
+                        if (FriendList.Contains(t.name.Replace("(Clone)","").Trim())) boxColor = Color.green;
 
+                        DrawBoxOutline(new Rect(guiX - (boxWidth/2), headY, boxWidth, boxHeight), boxColor, 2f);
+                    }
+ 
                     // Label
-                    GUI.Label(new Rect(guiX, guiY + 5, 150, 20), t.name.Replace("(Clone)",""));
+                    string labelName = t.name.Replace("(Clone)","");
+                    if (FriendList.Contains(labelName.Trim())) GUI.color = Color.green;
+                    else GUI.color = Color.white;
+                    
+                    GUI.Label(new Rect(guiX, guiY + 5, 150, 20), labelName);
                 }
             }
 
@@ -290,6 +382,40 @@ namespace MyScriptMod
             DrawCircleGUI(mouseGui, AimFov, Color.white);
             
             // Debug line is implicit by movement now.
+        }
+        }
+    
+    // Helper Methods for loading/saving (Manual serialization to avoid IL2CPP JSON issues)
+    public void SaveConfig()
+    {
+        string ignore = string.Join(";;", IgnoreList);
+        string friend = string.Join(";;", FriendList);
+        // Format: IgnoreList|FriendList|AimFov|AimSmoothness
+        string data = $"{ignore}||{friend}||{AimFov}||{AimSmoothness}";
+        
+        System.IO.File.WriteAllText(configPath, data);
+    }
+
+    public void LoadConfig()
+    {
+        if (System.IO.File.Exists(configPath))
+        {
+            string data = System.IO.File.ReadAllText(configPath);
+            string[] parts = data.Split(new string[]{"||"}, System.StringSplitOptions.None);
+            
+            if (parts.Length >= 2)
+            {
+                IgnoreList.Clear();
+                foreach(var s in parts[0].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) IgnoreList.Add(s);
+                
+                FriendList.Clear();
+                foreach(var s in parts[1].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) FriendList.Add(s);
+            }
+            if (parts.Length >= 4)
+            {
+                float.TryParse(parts[2], out AimFov);
+                float.TryParse(parts[3], out AimSmoothness);
+            }
         }
     }
 

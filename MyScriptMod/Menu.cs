@@ -58,6 +58,37 @@ namespace MyScriptMod
             {
                 esp.TestMouseMove();
             }
+            
+            GUILayout.Space(10);
+            GUILayout.Label("<b>Lists Management</b>");
+            
+            GUILayout.Label("<b>Friends (Green/NoAim)</b>");
+            var friendListCopy = new System.Collections.Generic.List<string>(esp.FriendList);
+            foreach(var f in friendListCopy)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(f);
+                if (GUILayout.Button("X", GUILayout.Width(25)))
+                {
+                    esp.FriendList.Remove(f);
+                    esp.SaveConfig();
+                }
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Label("<b>Ignored (Hidden)</b>");
+            var ignoreListCopy = new System.Collections.Generic.List<string>(esp.IgnoreList);
+            foreach(var i in ignoreListCopy)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(i);
+                if (GUILayout.Button("X", GUILayout.Width(25)))
+                {
+                    esp.IgnoreList.Remove(i);
+                    esp.SaveConfig();
+                }
+                GUILayout.EndHorizontal();
+            }
         }
 
         private void DrawSettingsTab()
