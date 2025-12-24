@@ -20,8 +20,13 @@ namespace MyScriptMod
         public float IgnoreRadius = 2.0f;
         public float SelfCylinderRadius = 0.5f; // Hardcoded as requested
         public float AimFov = 200f; // Reduced for semi-close aiming
+
         public float AimSmoothness = 15f; // Higher usually means faster in "Lerp(..., dt * Speed)"
         
+        // Prediction
+        public bool EnablePrediction = false;
+        public float PredictionScale = 0.5f; // User adjustable "How much to lead"
+
         // Strictly the filters you asked for
         public List<string> FilterKeywords = new List<string>() { "Vampire", "CreatureHorse" };
         
@@ -45,12 +50,16 @@ namespace MyScriptMod
             SaveConfig();
         }
 
+        private Dictionary<int, VelocityTracker> _velocities = new Dictionary<int, VelocityTracker>();
+
         private void Update()
         {
             if (Input.GetKeyDown(KeyCode.F1)) IsEspActive = !IsEspActive;
             if (Input.GetKeyDown(KeyCode.F2)) EnableAimAssist = !EnableAimAssist;
             if (Input.GetKeyDown(KeyCode.F3)) ShowOnlyAimTargets = !ShowOnlyAimTargets;
             if (Input.GetKeyDown(KeyCode.F4)) ShowTracers = !ShowTracers;
+            
+            UpdateVelocities();
             
             // F5: Ignore Entity under mouse
             if (Input.GetKeyDown(KeyCode.F5))
@@ -76,6 +85,35 @@ namespace MyScriptMod
             {
                 DoTopDownAim();
             }
+        }
+        
+        private void UpdateVelocities()
+        {
+             foreach (var t in _cachedTargets)
+             {
+                 if (t == null) continue;
+                 int id = t.GetInstanceID();
+                 if (!_velocities.ContainsKey(id))
+                 {
+                     _velocities[id] = new VelocityTracker() { LastPos = t.position, LastTime = Time.time, Velocity = Vector3.zero };
+                 }
+                 else
+                 {
+                     var vt = _velocities[id];
+                     float dt = Time.time - vt.LastTime;
+                     if (dt > 0)
+                     {
+                         Vector3 currVel = (t.position - vt.LastPos) / dt;
+                         // Smooth it: 80% old, 20% new to reduce jitter from A/D spam
+                         vt.Velocity = Vector3.Lerp(vt.Velocity, currVel, 0.2f); 
+                         
+                         vt.LastPos = t.position;
+                         vt.LastTime = Time.time;
+                     }
+                 }
+             }
+             
+             // Cleanup old keys occasionally if list shrinks (handled by Scan clearing cache, but Dictionary grows. It's fine for simple mod)
         }
         
         private void ToggleList(HashSet<string> list, string listName)
@@ -270,6 +308,35 @@ namespace MyScriptMod
                 // Aim at the "Center" of the target (approx height adjustment)
                 // Lowered to 0.5f as requested to aim "a bit lower"
                 Vector3 targetWorld = best.position + new Vector3(0, 0.5f, 0); 
+                
+                // PREDICTION LOGIC
+                if (EnablePrediction)
+                {
+                    int id = best.GetInstanceID();
+                    if (_velocities.ContainsKey(id))
+                     {
+                         Vector3 vel = _velocities[id].Velocity;
+                         float speed = vel.magnitude;
+                         
+                         // 1. Distance Factor (Close range usually hitscan -> No prediction)
+                         // Increased start dist to 4.0m to avoid predicting short whipes/sword hits
+                         float dist = Vector3.Distance(_mainCamera.transform.position, best.position);
+                         float distFactor = Mathf.Clamp01((dist - 4.0f) / 10.0f); // 0 at 4m, 1 at 14m
+                         
+                         // 2. Speed Factor (Ignore dashes/sudden movements)
+                         // If speed > 9 means likely dashing or knocked back -> Don't predict.
+                         float speedFactor = 1.0f;
+                         if (speed > 9.0f) 
+                         {
+                            // Smoothly drop to 0 between 9 and 12
+                            speedFactor = Mathf.Clamp01(1.0f - (speed - 9.0f) / 3.0f);
+                         }
+                         
+                         // Apply Prediction
+                         targetWorld += vel * PredictionScale * distFactor * speedFactor;
+                     }
+                }
+                
                 Vector3 sPos = _mainCamera.WorldToScreenPoint(targetWorld);
                 
                 float targetX = sPos.x;
@@ -397,13 +464,23 @@ namespace MyScriptMod
         }
         }
     
-    // Helper Methods for loading/saving (Manual serialization to avoid IL2CPP JSON issues)
+
+
+
+
+    class VelocityTracker
+    {
+        public Vector3 Velocity;
+        public Vector3 LastPos;
+        public float LastTime;
+    }
+
     public void SaveConfig()
     {
         string ignore = string.Join(";;", IgnoreList);
         string friend = string.Join(";;", FriendList);
-        // Format: IgnoreList|FriendList|AimFov|AimSmoothness
-        string data = $"{ignore}||{friend}||{AimFov}||{AimSmoothness}";
+        // Format: IgnoreList|FriendList|AimFov|AimSmoothness|EnablePrediction|PredictionScale
+        string data = $"{ignore}||{friend}||{AimFov}||{AimSmoothness}||{EnablePrediction}||{PredictionScale}";
         
         System.IO.File.WriteAllText(configPath, data);
     }
@@ -427,6 +504,11 @@ namespace MyScriptMod
             {
                 float.TryParse(parts[2], out AimFov);
                 float.TryParse(parts[3], out AimSmoothness);
+            }
+            if (parts.Length >= 6)
+            {
+                bool.TryParse(parts[4], out EnablePrediction);
+                float.TryParse(parts[5], out PredictionScale);
             }
         }
     }

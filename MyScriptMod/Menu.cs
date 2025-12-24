@@ -50,6 +50,14 @@ namespace MyScriptMod
             esp.EnableAimAssist = GUILayout.Toggle(esp.EnableAimAssist, "Enable Mouse-to-Hitbox");
             GUILayout.Label($"Aim Smoothness: {esp.AimSmoothness:F0}");
             esp.AimSmoothness = GUILayout.HorizontalSlider(esp.AimSmoothness, 1f, 30f);
+            
+            GUILayout.Space(5);
+            esp.EnablePrediction = GUILayout.Toggle(esp.EnablePrediction, "Enable Prediction (Leading)");
+            if (esp.EnablePrediction)
+            {
+                GUILayout.Label($"Prediction Scale: {esp.PredictionScale:F2}");
+                esp.PredictionScale = GUILayout.HorizontalSlider(esp.PredictionScale, 0f, 2.0f);
+            }
 
             GUILayout.Label($"Aim Circle Size: {esp.AimFov:F0}px");
             esp.AimFov = GUILayout.HorizontalSlider(esp.AimFov, 50f, 1000f);
