@@ -4,9 +4,15 @@ namespace MyScriptMod
 {
     public class ZoomHack : MonoBehaviour
     {
+        public static ZoomHack Instance; 
         public bool Enabled = false;
         public float CurrentFov = 60f;
         private Camera _mainCam;
+
+        private void Awake()
+        {
+            Instance = this;
+        }
 
         private void Update()
         {

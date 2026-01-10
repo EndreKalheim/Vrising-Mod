@@ -1,4 +1,5 @@
 using UnityEngine;
+using BepInEx;
 
 namespace MyScriptMod
 {
@@ -9,6 +10,11 @@ namespace MyScriptMod
         private int _currentTab = 0;
         public static bool UnlockUI = false; 
 
+        private void Start()
+        {
+             Plugin.Logger.LogInfo("Menu Initialized");
+        }
+
         private void Update()
         {
             if (Input.GetKeyDown(KeyCode.Home)) _isVisible = !_isVisible;
@@ -17,8 +23,10 @@ namespace MyScriptMod
         private void OnGUI()
         {
             if (!_isVisible) return;
+            
             GUI.backgroundColor = Color.black;
-            _windowRect = GUI.Window(0, _windowRect, (GUI.WindowFunction)DrawWindow, "V-MOD PREMIER");
+            GUI.contentColor = Color.white; 
+            _windowRect = GUI.Window(9999, _windowRect, (GUI.WindowFunction)DrawWindow, "V-MOD PREMIER");
         }
 
         private void DrawWindow(int id)
@@ -39,17 +47,18 @@ namespace MyScriptMod
             if (esp == null) return;
 
             GUILayout.Label("<b>Visuals (F1)</b>");
-            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable ESP (Master Switch)"); // Restored
+            esp.IsEspActive = GUILayout.Toggle(esp.IsEspActive, "Enable ESP (Master Switch)"); 
             esp.ShowTracers = GUILayout.Toggle(esp.ShowTracers, "Center Tracers (Red)");
-            
-            // Visuals
             esp.ShowBoxes = GUILayout.Toggle(esp.ShowBoxes, "2D Red Boxes");
 
             GUILayout.Space(10);
             GUILayout.Label("<b>Top-Down Aim (F2)</b>");
             esp.EnableAimAssist = GUILayout.Toggle(esp.EnableAimAssist, "Enable Mouse-to-Hitbox");
-            GUILayout.Label($"Aim Smoothness: {esp.AimSmoothness:F0}");
-            esp.AimSmoothness = GUILayout.HorizontalSlider(esp.AimSmoothness, 1f, 30f);
+            if (esp.EnableAimAssist)
+            {
+                GUILayout.Label($"Aim Smoothness: {esp.AimSmoothness:F1}");
+                esp.AimSmoothness = GUILayout.HorizontalSlider(esp.AimSmoothness, 1f, 30f);
+            }
             
             GUILayout.Space(5);
             esp.EnablePrediction = GUILayout.Toggle(esp.EnablePrediction, "Enable Prediction (Leading)");
@@ -58,58 +67,39 @@ namespace MyScriptMod
                 GUILayout.Label($"Prediction Scale: {esp.PredictionScale:F2}");
                 esp.PredictionScale = GUILayout.HorizontalSlider(esp.PredictionScale, 0f, 2.0f);
             }
-
             GUILayout.Label($"Aim Circle Size: {esp.AimFov:F0}px");
             esp.AimFov = GUILayout.HorizontalSlider(esp.AimFov, 50f, 1000f);
 
-
-            
             GUILayout.Space(10);
             GUILayout.Label("<b>Lists Management</b>");
-            
-            GUILayout.Label("<b>Friends (Green/NoAim)</b>");
-            var friendListCopy = new System.Collections.Generic.List<string>(esp.FriendList);
-            foreach(var f in friendListCopy)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(f);
-                if (GUILayout.Button("X", GUILayout.Width(25)))
-                {
-                    esp.FriendList.Remove(f);
-                    esp.SaveConfig();
-                }
-                GUILayout.EndHorizontal();
-            }
-
-            GUILayout.Label("<b>Ignored (Hidden)</b>");
-            var ignoreListCopy = new System.Collections.Generic.List<string>(esp.IgnoreList);
-            foreach(var i in ignoreListCopy)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(i);
-                if (GUILayout.Button("X", GUILayout.Width(25)))
-                {
-                    esp.IgnoreList.Remove(i);
-                    esp.SaveConfig();
-                }
-                GUILayout.EndHorizontal();
-            }
+            GUILayout.Label($"Friends: {esp.FriendList.Count} | Ignored: {esp.IgnoreList.Count}");
         }
 
         private void DrawSettingsTab()
         {
-            // --- COOLDOWN SECTION RESTORED ---
             GUILayout.Label("<b>Cooldown Overlay</b>");
-            var cd = GetComponent<CooldownOverlay>();
+            
+            // Switch to Singleton Access to fix Crash
+            var cd = CooldownOverlay.Instance;
             if (cd != null)
             {
                 cd.ShowOverlay = GUILayout.Toggle(cd.ShowOverlay, "Show Cooldown Icons");
                 UnlockUI = GUILayout.Toggle(UnlockUI, "Unlock UI (Drag Icons)");
+                
+                if (GUILayout.Button("Reset Overlay Position")) {
+                     cd.ResetPosition();
+                }
+            }
+            else
+            {
+                 GUILayout.Label("Cooldown Component Missing");
             }
 
             GUILayout.Space(10);
             GUILayout.Label("<b>Camera</b>");
-            var zoom = GetComponent<ZoomHack>();
+            
+            // Switch to Singleton Access
+            var zoom = ZoomHack.Instance;
             if (zoom != null)
             {
                 zoom.Enabled = GUILayout.Toggle(zoom.Enabled, "Enable ZoomHack");

@@ -7,6 +7,7 @@ using BepInEx.Logging;
 using System.Collections;
 using System.Runtime.InteropServices;
 using System;
+using ProjectM;
 
 namespace MyScriptMod;
 
@@ -18,7 +19,8 @@ public class Plugin : BasePlugin
     public static ConfigEntry<KeyCode> TriggerKey;
     public static ConfigEntry<float> DelayAfterO9;
     public static ConfigEntry<float> WaitBeforeE;
-    public static ConfigEntry<float> SpamDuration; // New setting for buffering
+    public static ConfigEntry<float> SpamDuration; 
+    public static bool IsEnabled = true;
 
     public override void Load()
     {
@@ -27,18 +29,33 @@ public class Plugin : BasePlugin
         
         TriggerKey = Config.Bind("General", "TriggerKey", KeyCode.L, "Key to start.");
         DelayAfterO9 = Config.Bind("Timings", "DelayAfterO9", 0.35f, "Delay after O+9.");
-        // Set this slightly EARLIER than the perfect window (e.g. if window is 5.0, set this to 4.9)
         WaitBeforeE = Config.Bind("Timings", "WaitBeforeE", 4.90f, "Time until E starts spamming.");
         SpamDuration = Config.Bind("Timings", "SpamDuration", 0.2f, "How long to spam E.");
 
         IL2CPPChainloader.AddUnityComponent<MacroController>();
         IL2CPPChainloader.AddUnityComponent<EspFeature>();
-        IL2CPPChainloader.AddUnityComponent<ScriptManager>();
+        IL2CPPChainloader.AddUnityComponent<ScriptManager>(); 
         IL2CPPChainloader.AddUnityComponent<Menu>();
-        IL2CPPChainloader.AddUnityComponent<CooldownOverlay>();
-        IL2CPPChainloader.AddUnityComponent<ZoomHack>();
+
+        // Capture Instances
+        try {
+            var cd = IL2CPPChainloader.AddUnityComponent<CooldownOverlay>();
+            if (cd != null) 
+            {
+                CooldownOverlay.Instance = cd;
+                Log.LogInfo("CooldownOverlay Added & Instance Set.");
+            }
+            else Log.LogError("CooldownOverlay Add Failed (Returned Null)");
+        } catch (Exception e) { Log.LogError($"CooldownOverlay Init Error: {e.Message}"); }
+
+        try {
+            var zoom = IL2CPPChainloader.AddUnityComponent<ZoomHack>();
+            if (zoom != null) ZoomHack.Instance = zoom;
+        } catch {}
+
+        IL2CPPChainloader.AddUnityComponent<DebugScanner>();
         
-        Log.LogInfo("Buffered Macro & New Features Loaded.");
+        Log.LogInfo("Mod Loaded (Reverted to IL2CPPChainloader) - Safe Init");
     }
 }
 
@@ -107,7 +124,6 @@ public class MacroController : MonoBehaviour
         }
 
         // --- STEP 4: Buffered Input (Spam E) ---
-        // This solves the 60% issue. We spam the key to catch the exact frame.
         if (!_isRunning) yield break;
 
         Plugin.Logger.LogInfo("Buffering E...");
@@ -120,9 +136,9 @@ public class MacroController : MonoBehaviour
         {
             if (!_isRunning) break;
 
-            Win32.SendScanCode(0x12, true);  // E Down
-            yield return new WaitForSeconds(0.02f); // Very fast taps
-            Win32.SendScanCode(0x12, false); // E Up
+            Win32.SendScanCode(0x12, true); 
+            yield return new WaitForSeconds(0.02f); 
+            Win32.SendScanCode(0x12, false); 
             yield return new WaitForSeconds(0.02f);
         }
         
@@ -138,8 +154,6 @@ public class MacroController : MonoBehaviour
         StopAllCoroutines();
         _isRunning = false;
         _isMacroTyping = false;
-        
-        // Cleanup keys
         Win32.SendScanCode(0x18, false); 
         Win32.SendScanCode(0x0A, false); 
         Win32.SendScanCode(0x12, false); 

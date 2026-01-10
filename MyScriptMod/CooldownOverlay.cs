@@ -1,98 +1,275 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using BepInEx;
+using Unity.Entities;
+using Unity.Collections;
+using ProjectM;
+using ProjectM.Network;
 
 namespace MyScriptMod
 {
+    public class CooldownTracker
+    {
+        public int ID;
+        public string Label; // "Q", "E", "SPC"
+        public int SlotIndex; // Index in AbilityGroupSlotBuffer
+        public Rect WindowRect;
+        
+        // Dynamic State
+        public float RemainingTime;
+        public float MaxDuration;
+        public string AbilityName; // Debug info
+    }
+
+    public class CooldownData
+    {
+        public string Name;
+        public float Remaining;
+        public float MaxDuration;
+    }
+
     public class CooldownOverlay : MonoBehaviour
     {
+        public static CooldownOverlay Instance;
         public bool ShowOverlay = true;
-        public List<CooldownTracker> Trackers = new List<CooldownTracker>();
-        private string configPath => System.IO.Path.Combine(Application.persistentDataPath, "MyScriptMod_Cooldowns.txt");
+        
+        // CRITICAL FIX: Private list to avoid IL2CPP Marshalling crash
+        private List<CooldownTracker> Trackers = new List<CooldownTracker>();
+        private string configPath => System.IO.Path.Combine(Application.persistentDataPath, "MyScriptMod_Cooldowns_V2.txt");
+
+        public bool ShowDebug = false;
+        private string _debugLog = "";
+
+        private World _clientWorld;
+        private EntityManager _entityManager;
+        private Entity _localPlayerEntity = Entity.Null;
+        private string[] _slotNames = new string[] {"", "", "", "", "", "", "", "", "", ""}; 
+
+        private void Awake()
+        {
+             Instance = this;
+        }
 
         private void Start()
         {
-            // Defaults
-            Trackers.Add(new CooldownTracker(100, "Q", KeyCode.Q, 8f, new Rect(Screen.width/2 - 60, Screen.height - 100, 80, 80)));
-            Trackers.Add(new CooldownTracker(101, "E", KeyCode.E, 8f, new Rect(Screen.width/2 + 30, Screen.height - 100, 80, 80)));
-            Trackers.Add(new CooldownTracker(102, "Spc", KeyCode.Space, 8f, new Rect(Screen.width/2 - 15, Screen.height - 180, 80, 80)));
-            
-            // Mouse Abilities (Extra)
-            Trackers.Add(new CooldownTracker(103, "M4", KeyCode.Mouse3, 8f, new Rect(Screen.width/2 - 140, Screen.height - 100, 80, 80)));
-            Trackers.Add(new CooldownTracker(104, "M5", KeyCode.Mouse4, 8f, new Rect(Screen.width/2 + 110, Screen.height - 100, 80, 80)));
-            
             LoadConfig();
+            
+            // If config didn't load (empty list), create defaults
+            if (Trackers.Count == 0)
+            {
+                // Slot Indices: W1=1, W2=4, Spc=2, R=5, C=6, Ult=7
+                float cx = Screen.width / 2f;
+                float cy = Screen.height - 150f;
+
+                Trackers.Add(new CooldownTracker { ID=101, Label="1", SlotIndex=0, WindowRect=new Rect(cx-180, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID=102, Label="Q", SlotIndex=1,  WindowRect=new Rect(cx-120, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID=103, Label="E", SlotIndex=4,  WindowRect=new Rect(cx-60, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID=104, Label="SPC", SlotIndex=2,WindowRect=new Rect(cx, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID=105, Label="R", SlotIndex=5,  WindowRect=new Rect(cx+60, cy, 60, 60) }); 
+                Trackers.Add(new CooldownTracker { ID=106, Label="C", SlotIndex=6,  WindowRect=new Rect(cx+120, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID=107, Label="ULT", SlotIndex=7,WindowRect=new Rect(cx+180, cy, 60, 60) });
+            }
         }
 
         private void OnDestroy()
         {
             SaveConfig();
         }
-        
-        private void OnApplicationQuit()
-        {
-            SaveConfig();
-        }
 
         private void SaveConfig()
         {
-            // Format: ID:Duration:RectX:RectY|ID:Duration:RectX:RectY
             List<string> lines = new List<string>();
             foreach(var t in Trackers)
             {
-                lines.Add($"{t.ID}:{t.Duration}:{t.WindowRect.x}:{t.WindowRect.y}");
+                lines.Add($"{t.ID}:{t.WindowRect.x}:{t.WindowRect.y}");
             }
-            System.IO.File.WriteAllText(configPath, string.Join("|", lines));
+            try {
+                System.IO.File.WriteAllText(configPath, string.Join("|", lines));
+            } catch {}
         }
 
         private void LoadConfig()
         {
             if (!System.IO.File.Exists(configPath)) return;
-            string data = System.IO.File.ReadAllText(configPath);
-            string[] items = data.Split('|');
-            foreach(var item in items)
-            {
-                if (string.IsNullOrEmpty(item)) continue;
-                string[] parts = item.Split(':');
-                if (parts.Length == 4)
-                {
-                    if (int.TryParse(parts[0], out int id))
-                    {
-                        var t = Trackers.Find(x => x.ID == id);
-                        if (t != null)
-                        {
-                            float.TryParse(parts[1], out t.Duration);
-                            float.TryParse(parts[2], out float rx);
-                            float.TryParse(parts[3], out float ry);
-                            t.WindowRect = new Rect(rx, ry, t.WindowRect.width, t.WindowRect.height);
-                        }
+            try {
+                string data = System.IO.File.ReadAllText(configPath);
+                string[] items = data.Split('|');
+                var tempPos = new Dictionary<int, Vector2>();
+                foreach(var item in items) {
+                    string[] parts = item.Split(':');
+                    if (parts.Length == 3 && int.TryParse(parts[0], out int id)) {
+                         if (float.TryParse(parts[1], out float tx) && float.TryParse(parts[2], out float ty))
+                             tempPos[id] = new Vector2(tx, ty);
                     }
                 }
-            }
+                
+                // Defaults must be created first if list empty
+                 if (Trackers.Count == 0) {
+                     float cx = Screen.width / 2f; float cy = Screen.height - 150f;
+                    Trackers.Add(new CooldownTracker { ID=101, Label="1", SlotIndex=0, WindowRect=new Rect(cx-180, cy, 60, 60) });
+                    Trackers.Add(new CooldownTracker { ID=102, Label="Q", SlotIndex=1,  WindowRect=new Rect(cx-120, cy, 60, 60) });
+                    Trackers.Add(new CooldownTracker { ID=103, Label="E", SlotIndex=4,  WindowRect=new Rect(cx-60, cy, 60, 60) });
+                    Trackers.Add(new CooldownTracker { ID=104, Label="SPC", SlotIndex=2,WindowRect=new Rect(cx, cy, 60, 60) });
+                    Trackers.Add(new CooldownTracker { ID=105, Label="R", SlotIndex=5,  WindowRect=new Rect(cx+60, cy, 60, 60) }); 
+                    Trackers.Add(new CooldownTracker { ID=106, Label="C", SlotIndex=6,  WindowRect=new Rect(cx+120, cy, 60, 60) });
+                    Trackers.Add(new CooldownTracker { ID=107, Label="ULT", SlotIndex=7,WindowRect=new Rect(cx+180, cy, 60, 60) });
+                 }
+
+                 foreach(var kvp in tempPos) {
+                     var t = Trackers.Find(x => x.ID == kvp.Key);
+                     if (t != null) t.WindowRect = new Rect(kvp.Value.x, kvp.Value.y, t.WindowRect.width, t.WindowRect.height);
+                 }
+
+            } catch {}
+        }
+        
+        public void ResetPosition()
+        {
+             Trackers.Clear();
+             Start(); 
         }
 
         private void Update()
         {
-            foreach (var t in Trackers)
+            if (!Plugin.IsEnabled) return;
+            try {
+                ScanSlotsAndCooldowns();
+            } catch { }
+        }
+
+        private void ScanSlotsAndCooldowns()
+        {
+            InitializeWorld();
+            if (_clientWorld == null || !_clientWorld.IsCreated) return;
+            
+            // 1. Server Time
+            double currentServerTime = 0;
+            var stQuery = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<ProjectM.ServerTime>());
+            if (!stQuery.IsEmpty)
             {
-                if (Input.GetKeyDown(t.TriggerKey)) t.CurrentTime = t.Duration;
-                if (t.CurrentTime > 0) t.CurrentTime -= Time.deltaTime;
+                var stEntity = stQuery.GetSingletonEntity();
+                currentServerTime = _entityManager.GetComponentData<ProjectM.ServerTime>(stEntity).Time;
+            }
+            else return;
+
+            // 2. Player
+            if (_localPlayerEntity == Entity.Null || !_entityManager.Exists(_localPlayerEntity))
+            {
+                var pdq = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<LocalCharacter>());
+                if (pdq.IsEmpty) return;
+                _localPlayerEntity = pdq.GetSingletonEntity();
+            }
+
+            // 3. Map Slots & Check for Cooldowns Directly on Slot Entities
+            if (_entityManager.HasComponent<AbilityGroupSlotBuffer>(_localPlayerEntity))
+            {
+                var buffer = _entityManager.GetBuffer<AbilityGroupSlotBuffer>(_localPlayerEntity);
+                for (int i = 0; i < Math.Min(buffer.Length, 15); i++)
+                {
+                    Entity groupEntity = buffer[i].GroupSlotEntity._Entity;
+                    string derivedName = "";
+                    float foundRemaining = -999f;
+                    float foundDuration = 8.0f;
+
+                    // Inner Function
+                    void Check(Entity target) {
+                        if (target != Entity.Null && _entityManager.Exists(target) && _entityManager.HasComponent<AbilityCooldownState>(target)) {
+                            var cd = _entityManager.GetComponentData<AbilityCooldownState>(target);
+                            if (cd.CooldownEndTime > 0) {
+                                double r = cd.CooldownEndTime - currentServerTime;
+                                if (r > -5.0 && r < 600.0) {
+                                    foundRemaining = (float)r;
+                                    if (_entityManager.HasComponent<Stunlock.Core.PrefabGUID>(target)) {
+                                        var g = _entityManager.GetComponentData<Stunlock.Core.PrefabGUID>(target);
+                                        foundDuration = AbilityDatabase.GetDuration(g);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Check Group Entity
+                    Check(groupEntity);
+
+                    if (_entityManager.Exists(groupEntity) && _entityManager.HasComponent<AbilityGroupSlot>(groupEntity))
+                    {
+                        var slotData = _entityManager.GetComponentData<AbilityGroupSlot>(groupEntity);
+                        Entity stateEnt = slotData.StateEntity._Entity;
+
+                        // Check State Entity
+                        Check(stateEnt);
+
+                        if (_entityManager.Exists(stateEnt) && _entityManager.HasComponent<Stunlock.Core.PrefabGUID>(stateEnt))
+                        {
+                            var guid = _entityManager.GetComponentData<Stunlock.Core.PrefabGUID>(stateEnt);
+                            if (AbilityDatabase.TryGetName(guid, out string n)) derivedName = n;
+                            else derivedName = $"ID: {guid.GuidHash}";
+                        }
+                    }
+                    if (i < _slotNames.Length) _slotNames[i] = derivedName ?? "";
+                    
+                    // Assign to Trackers
+                    foreach(var t in Trackers) {
+                        if (t.SlotIndex == i) {
+                            t.RemainingTime = foundRemaining;
+                            t.MaxDuration = foundDuration;
+                            t.AbilityName = derivedName;
+                        }
+                    }
+                }
+            }
+            
+            // Update Debug Log
+            if (ShowDebug) {
+                 System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                 foreach(var t in Trackers) {
+                     sb.AppendLine($"Slot {t.SlotIndex} ({t.Label}): {t.AbilityName} | Rem: {t.RemainingTime:F1}");
+                 }
+                 _debugLog = sb.ToString();
             }
         }
 
         private void OnGUI()
         {
+            if (!Plugin.IsEnabled) return;
             if (!ShowOverlay) return;
 
-            foreach (var t in Trackers)
+            bool unlocked = Menu.UnlockUI;
+
+            for (int i=0; i < Trackers.Count; i++)
             {
-                // Logic for showing: only if cooldown active OR menu says UnlockUI is on
-                if (t.CurrentTime > 0 || Menu.UnlockUI)
+                var t = Trackers[i];
+                bool show = unlocked || (t.RemainingTime > -2.0f && t.RemainingTime < 600.0f && t.RemainingTime != -999f);
+                
+                if (show)
                 {
-                    GUI.backgroundColor = Menu.UnlockUI ? new Color(1, 0, 0, 0.5f) : Color.clear;
+                    GUI.backgroundColor = unlocked ? new Color(0,0,0,0.5f) : Color.clear;
+                    GUI.contentColor = Color.white; 
                     t.WindowRect = GUI.Window(t.ID, t.WindowRect, (GUI.WindowFunction)DrawSingleTracker, "");
                 }
             }
+            
+            if (unlocked)
+            {
+                if (GUI.Button(new Rect(Screen.width/2 - 50, 10, 100, 30), "Toggle Debug")) 
+                    ShowDebug = !ShowDebug;
+            }
+
+            if (ShowDebug)
+            {
+                GUI.backgroundColor = Color.black;
+                GUI.Window(99999, new Rect(10, 10, 400, 800), (GUI.WindowFunction)DrawDebugWindow, "DEBUG DATA");
+            }
+        }
+
+        private void DrawDebugWindow(int id)
+        {
+            GUI.DragWindow(new Rect(0,0, 10000, 20));
+            GUILayout.BeginVertical();
+            GUILayout.Label("<b>TRACKER STATES</b>");
+            GUILayout.Label(_debugLog);
+            GUILayout.EndVertical();
         }
 
         private void DrawSingleTracker(int id)
@@ -102,62 +279,68 @@ namespace MyScriptMod
 
             if (Menu.UnlockUI)
             {
-                // Drag Handle (Header)
-                GUI.color = Color.cyan;
-                GUI.DrawTexture(new Rect(0, 0, 80, 25), Texture2D.whiteTexture);
-                GUI.color = Color.black; 
-                GUI.Label(new Rect(0, 0, 80, 25), "DRAG");
-                GUI.color = Color.white;
-
-                // Drag Logic (Must be AFTER drawing if we want to see it, but DragWindow usually consumes events so it might be tricky.
-                // Actually GUI.DragWindow should be called last for the window, but inside the callback it's usually first. 
-                // We keep it first logic-wise, but visual-wise the header represents it).
-                GUI.DragWindow(new Rect(0, 0, 10000, 25)); 
-
-                // Value Display
-                GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-                GUI.Label(new Rect(0, 30, 80, 20), t.Duration.ToString("F1") + "s");
-                
-                // Buttons (0.1s adjustment)
-                if (GUI.Button(new Rect(5, 55, 30, 20), "-")) t.Duration -= 0.1f;
-                if (GUI.Button(new Rect(45, 55, 30, 20), "+")) t.Duration += 0.1f;
+                GUI.DragWindow(new Rect(0,0, 10000, 20));
+                GUI.Label(new Rect(0,0,t.WindowRect.width, 20), t.Label, CenteredStyle());
+                GUI.Label(new Rect(0,25,t.WindowRect.width, 20), "DRAG", CenteredStyle());
                 return;
             }
 
-            // Visual for Cooldown
-            GUI.Box(new Rect(0, 0, 50, 50), "");
-            GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-            GUI.skin.label.fontSize = 20;
+            float rem = t.RemainingTime;
+            float max = t.MaxDuration;
+            if (max < 0.1f) max = 1f;
+
+            Color c = Color.gray;
+            string text = "";
+
+            if (rem > 0)
+            {
+                 float ratio = rem / max;
+                 if (ratio > 0.5f) c = new Color(0.8f, 0.2f, 0.2f, 0.9f); 
+                 else if (rem > 2.0f) c = new Color(0.9f, 0.8f, 0.2f, 0.9f);
+                 else c = new Color(0.2f, 0.8f, 0.3f, 0.9f); 
+                 text = rem.ToString("F1");
+            }
+            else if (rem > -2.0f) 
+            {
+                 c = new Color(0.2f, 1.0f, 0.4f, 1.0f);
+                 text = "RDY";
+            }
             
-            if (t.CurrentTime > 0)
-            {
-                 GUI.color = Color.red;
-                 GUI.Label(new Rect(0, 0, 50, 50), t.CurrentTime.ToString("F0"));
-            }
-            else
-            {
-                 GUI.color = Color.green;
-                 GUI.Label(new Rect(0, 0, 50, 50), "RDY");
-            }
-
+            var old = GUI.color;
+            GUI.color = c;
+            GUI.Box(new Rect(0,0, t.WindowRect.width, t.WindowRect.height), "");
+            
             GUI.color = Color.white;
-            GUI.skin.label.fontSize = 12;
-            GUI.Label(new Rect(0, 35, 50, 15), t.Label);
+            GUI.Label(new Rect(0,0, t.WindowRect.width, t.WindowRect.height), text, CenteredStyle(16));
+            GUI.Label(new Rect(0, t.WindowRect.height - 15, t.WindowRect.width, 15), t.Label, CenteredStyle(10));
+            GUI.color = old;
         }
-    }
 
-    public class CooldownTracker
-    {
-        public int ID;
-        public string Label;
-        public KeyCode TriggerKey;
-        public float Duration;
-        public float CurrentTime;
-        public Rect WindowRect;
-
-        public CooldownTracker(int id, string label, KeyCode key, float dur, Rect r)
+        private GUIStyle _style;
+        private GUIStyle CenteredStyle(int size = 12)
         {
-            ID = id; Label = label; TriggerKey = key; Duration = dur; WindowRect = r;
+            if (_style == null) _style = new GUIStyle();
+            _style.alignment = TextAnchor.MiddleCenter;
+            _style.fontSize = size;
+            _style.fontStyle = FontStyle.Bold;
+            _style.normal.textColor = Color.white;
+            return _style;
+        }
+        
+        private void InitializeWorld()
+        {
+            if (_clientWorld == null)
+            {
+                foreach(var w in World.All)
+                {
+                    if (w.Name == "Client_0")
+                    {
+                        _clientWorld = w;
+                        _entityManager = w.EntityManager;
+                        break;
+                    }
+                }
+            }
         }
     }
 }

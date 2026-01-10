@@ -18,17 +18,26 @@ namespace MyScriptMod
         
         public float ScanRadius = 400f; 
         public float IgnoreRadius = 2.0f;
-        public float SelfCylinderRadius = 0.5f; // Hardcoded as requested
-        public float AimFov = 200f; // Reduced for semi-close aiming
+        public float SelfCylinderRadius = 0.5f; 
+        public float AimFov = 200f; 
 
-        public float AimSmoothness = 15f; // Higher usually means faster in "Lerp(..., dt * Speed)"
+        public float AimSmoothness = 15f; 
         
         // Prediction
         public bool EnablePrediction = false;
-        public float PredictionScale = 0.5f; // User adjustable "How much to lead"
+        public float PredictionScale = 0.5f; 
 
         // Strictly the filters you asked for
-        public List<string> FilterKeywords = new List<string>() { "Vampire", "CreatureHorse" };
+        public List<string> FilterKeywords = new List<string>() { "Vampire", "CreatureHorse", "Player", "Character" };
+        
+        // Automatic exclusions to reduce clutter
+        // Removed LOD/Rig/Mesh/Bone from exclusions as they may handle the visible selection for some entities
+        private List<string> _autoExcludeTerms = new List<string>() 
+        {
+            "HeadGear", "Headgear", "Hair", "Face", "Attachment", "Accessory", "Accessories",
+            "FullCover", "HalfCover", "Cloak", "Equip", 
+            "Part_", "Effector", "Spotlight", "Dummy", "Debris"
+        };
         
         // Lists
         public HashSet<string> IgnoreList = new HashSet<string>();
@@ -112,8 +121,6 @@ namespace MyScriptMod
                      }
                  }
              }
-             
-             // Cleanup old keys occasionally if list shrinks (handled by Scan clearing cache, but Dictionary grows. It's fine for simple mod)
         }
         
         private void ToggleList(HashSet<string> list, string listName)
@@ -216,9 +223,6 @@ namespace MyScriptMod
                 }
             }
 
-            // Fallback for Debug: If we can't find spotlight, use Camera position projected to ground
-
-
             // 2. Filter & Collect Targets
             foreach (var go in all)
             {
@@ -226,18 +230,29 @@ namespace MyScriptMod
                 
                 string n = go.name;
                 string cleanName = n.Replace("(Clone)","").Trim();
+                
+                // --- MANUAL IGNORE (F5) ---
+                if (IgnoreList.Contains(cleanName)) continue;
 
-                // Exclusions
-                if (n.Contains("Hair") || 
-                    n.Contains("Face") || 
-                    n.Contains("HeadGear") || 
-                    n.Contains("Dummy") || 
-                    n.Contains("Accessories") || // New Exclusion
-                    IgnoreList.Contains(cleanName)) continue;
+                // --- AUTO EXCLUSION (Clutter) ---
+                // We do a case-insensitive check for common clutter keywords
+                bool isExcluded = false;
+                foreach (var term in _autoExcludeTerms)
+                {
+                    if (n.IndexOf(term, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        isExcluded = true;
+                        break;
+                    }
+                }
+                if (isExcluded) continue;
 
-                // Inclusions
+                // --- INCLUSIONS ---
                 bool isMatch = false;
-                foreach (var k in FilterKeywords) if (n.Contains(k)) { isMatch = true; break; }
+                foreach (var k in FilterKeywords) 
+                { 
+                    if (n.Contains(k)) { isMatch = true; break; } 
+                }
                 if (!isMatch) continue;
 
                 Vector3 targetPos = go.transform.position;
@@ -319,7 +334,7 @@ namespace MyScriptMod
                          float speed = vel.magnitude;
                          
                          // 1. Distance Factor (Close range usually hitscan -> No prediction)
-                         // Increased start dist to 4.0m to avoid predicting short whipes/sword hits
+                         // Increased start dist to 4.0f to avoid predicting short whipes/sword hits
                          float dist = Vector3.Distance(_mainCamera.transform.position, best.position);
                          float distFactor = Mathf.Clamp01((dist - 4.0f) / 10.0f); // 0 at 4m, 1 at 14m
                          
@@ -344,31 +359,11 @@ namespace MyScriptMod
 
                 // The OS SetCursorPos expects Top-Down screen coordinates.
                 // Unity Input.mousePosition is Window-relative Bottom-Up.
-                // We need to map Unity GUI coordinates (Window Relative) to Screen Coordinates if we use SetCursorPos?
-                // Actually SetCursorPos is GLOBAL. If we are windowed, this is tricky.
-                
-                // However, user said "true crosshair is above circle".
-                // If we use Input.mousePosition for circle, the circle will match the game cursor.
-                // But SetCursorPos moves the OS cursor.
-                // If we are Fullscreen, Window 0,0 is Screen 0,0.
                 
                 // Let's assume user is Fullscreen or Borderless.
                 // GetCursorPos(out POINT p) -> This is GLOBAL.
                 
-                // Let's rely on the previous lerp but utilizing Unity mouse pos for the Start Point?
-                // No, SetCursorPos needs Global.
                 GetCursorPos(out POINT currentP); // We still need this for the "Current" OS position to lerp FROM.
-                
-                // But we must calculate "Target" in Global space too?
-                // If WorldToScreenPoint returns window-relative...
-                
-                // If the user's circle was offset, it means GetCursorPos (Global) != OnGUI (Window).
-                // Changing Circle to use Input.mousePosition (Window) fixes the visual Circle.
-                
-                // Now for the actual movement.
-                // If we want to move cursor to 'targetX/Y' (which are Window coords),
-                // we need to offset them by Window Position if we are windowed.
-                // But we don't have window position easily.
                 
                 // IF we validly assume Fullscreen:
                 float currentX = currentP.X;
@@ -464,66 +459,62 @@ namespace MyScriptMod
         }
         }
     
-
-
-
-
-    class VelocityTracker
-    {
-        public Vector3 Velocity;
-        public Vector3 LastPos;
-        public float LastTime;
-    }
-
-    public void SaveConfig()
-    {
-        string ignore = string.Join(";;", IgnoreList);
-        string friend = string.Join(";;", FriendList);
-        // Format: IgnoreList|FriendList|AimFov|AimSmoothness|EnablePrediction|PredictionScale
-        string data = $"{ignore}||{friend}||{AimFov}||{AimSmoothness}||{EnablePrediction}||{PredictionScale}";
-        
-        System.IO.File.WriteAllText(configPath, data);
-    }
-
-    public void LoadConfig()
-    {
-        if (System.IO.File.Exists(configPath))
+        class VelocityTracker
         {
-            string data = System.IO.File.ReadAllText(configPath);
-            string[] parts = data.Split(new string[]{"||"}, System.StringSplitOptions.None);
+            public Vector3 Velocity;
+            public Vector3 LastPos;
+            public float LastTime;
+        }
+
+        public void SaveConfig()
+        {
+            string ignore = string.Join(";;", IgnoreList);
+            string friend = string.Join(";;", FriendList);
+            // Format: IgnoreList|FriendList|AimFov|AimSmoothness|EnablePrediction|PredictionScale
+            string data = $"{ignore}||{friend}||{AimFov}||{AimSmoothness}||{EnablePrediction}||{PredictionScale}";
             
-            if (parts.Length >= 2)
+            System.IO.File.WriteAllText(configPath, data);
+        }
+
+        public void LoadConfig()
+        {
+            if (System.IO.File.Exists(configPath))
             {
-                IgnoreList.Clear();
-                foreach(var s in parts[0].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) IgnoreList.Add(s);
+                string data = System.IO.File.ReadAllText(configPath);
+                string[] parts = data.Split(new string[]{"||"}, System.StringSplitOptions.None);
                 
-                FriendList.Clear();
-                foreach(var s in parts[1].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) FriendList.Add(s);
-            }
-            if (parts.Length >= 4)
-            {
-                float.TryParse(parts[2], out AimFov);
-                float.TryParse(parts[3], out AimSmoothness);
-            }
-            if (parts.Length >= 6)
-            {
-                bool.TryParse(parts[4], out EnablePrediction);
-                float.TryParse(parts[5], out PredictionScale);
+                if (parts.Length >= 2)
+                {
+                    IgnoreList.Clear();
+                    foreach(var s in parts[0].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) IgnoreList.Add(s);
+                    
+                    FriendList.Clear();
+                    foreach(var s in parts[1].Split(new string[]{";;"}, System.StringSplitOptions.RemoveEmptyEntries)) FriendList.Add(s);
+                }
+                if (parts.Length >= 4)
+                {
+                    float.TryParse(parts[2], out AimFov);
+                    float.TryParse(parts[3], out AimSmoothness);
+                }
+                if (parts.Length >= 6)
+                {
+                    bool.TryParse(parts[4], out EnablePrediction);
+                    float.TryParse(parts[5], out PredictionScale);
+                }
             }
         }
-    }
 
-    private void DrawCircleGUI(Vector2 center, float radius, Color color)
-    {
-         GUI.color = color;
-         Vector2 prev = center + new Vector2(radius, 0);
-         for(int i=1; i<=16; i++) {
-             float a = i * (360f/16f) * Mathf.Deg2Rad;
-             Vector2 next = center + new Vector2(Mathf.Cos(a)*radius, Mathf.Sin(a)*radius);
-             DrawLine(prev, next, color);
-             prev = next;
-         }
-    }
+        private void DrawCircleGUI(Vector2 center, float radius, Color color)
+        {
+             GUI.color = color;
+             Vector2 prev = center + new Vector2(radius, 0);
+             for(int i=1; i<=16; i++) {
+                 float a = i * (360f/16f) * Mathf.Deg2Rad;
+                 Vector2 next = center + new Vector2(Mathf.Cos(a)*radius, Mathf.Sin(a)*radius);
+                 DrawLine(prev, next, color);
+                 prev = next;
+             }
+        }
 
         private void DrawWorldCircle(Vector3 center, float radius, Color color)
         {
