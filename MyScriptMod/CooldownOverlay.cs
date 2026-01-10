@@ -1,138 +1,69 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using BepInEx;
 using Unity.Entities;
-using Unity.Collections;
 using ProjectM;
 using ProjectM.Network;
+using Stunlock.Core;
 
 namespace MyScriptMod
 {
     public class CooldownTracker
     {
         public int ID;
-        public string Label; // "Q", "E", "SPC"
-        public int SlotIndex; // Index in AbilityGroupSlotBuffer
+        public string Label;
+        public int SlotIndex;
         public Rect WindowRect;
-        
-        // Dynamic State
         public float RemainingTime;
         public float MaxDuration;
-        public string AbilityName; // Debug info
-    }
-
-    public class CooldownData
-    {
-        public string Name;
-        public float Remaining;
-        public float MaxDuration;
+        public string AbilityName;
     }
 
     public class CooldownOverlay : MonoBehaviour
     {
         public static CooldownOverlay Instance;
         public bool ShowOverlay = true;
-        
-        // CRITICAL FIX: Private list to avoid IL2CPP Marshalling crash
         private List<CooldownTracker> Trackers = new List<CooldownTracker>();
         private string configPath => System.IO.Path.Combine(Application.persistentDataPath, "MyScriptMod_Cooldowns_V2.txt");
 
         public bool ShowDebug = false;
         private string _debugLog = "";
-
         private World _clientWorld;
         private EntityManager _entityManager;
         private Entity _localPlayerEntity = Entity.Null;
-        private string[] _slotNames = new string[] {"", "", "", "", "", "", "", "", "", ""}; 
+        private bool _initialized = false;
 
         private void Awake()
         {
-             Instance = this;
+            Instance = this;
         }
 
-        private void Start()
+        private void EnsureTrackersInitialized()
         {
+            if (_initialized || Screen.width <= 0) return;
+
             LoadConfig();
-            
-            // If config didn't load (empty list), create defaults
+
             if (Trackers.Count == 0)
             {
-                // Slot Indices: W1=1, W2=4, Spc=2, R=5, C=6, Ult=7
                 float cx = Screen.width / 2f;
                 float cy = Screen.height - 150f;
-
-                Trackers.Add(new CooldownTracker { ID=101, Label="1", SlotIndex=0, WindowRect=new Rect(cx-180, cy, 60, 60) });
-                Trackers.Add(new CooldownTracker { ID=102, Label="Q", SlotIndex=1,  WindowRect=new Rect(cx-120, cy, 60, 60) });
-                Trackers.Add(new CooldownTracker { ID=103, Label="E", SlotIndex=4,  WindowRect=new Rect(cx-60, cy, 60, 60) });
-                Trackers.Add(new CooldownTracker { ID=104, Label="SPC", SlotIndex=2,WindowRect=new Rect(cx, cy, 60, 60) });
-                Trackers.Add(new CooldownTracker { ID=105, Label="R", SlotIndex=5,  WindowRect=new Rect(cx+60, cy, 60, 60) }); 
-                Trackers.Add(new CooldownTracker { ID=106, Label="C", SlotIndex=6,  WindowRect=new Rect(cx+120, cy, 60, 60) });
-                Trackers.Add(new CooldownTracker { ID=107, Label="ULT", SlotIndex=7,WindowRect=new Rect(cx+180, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 101, Label = "1", SlotIndex = 0, WindowRect = new Rect(cx - 180, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 102, Label = "Q", SlotIndex = 1, WindowRect = new Rect(cx - 120, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 103, Label = "E", SlotIndex = 4, WindowRect = new Rect(cx - 60, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 104, Label = "SPC", SlotIndex = 2, WindowRect = new Rect(cx, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 105, Label = "R", SlotIndex = 5, WindowRect = new Rect(cx + 60, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 106, Label = "C", SlotIndex = 6, WindowRect = new Rect(cx + 120, cy, 60, 60) });
+                Trackers.Add(new CooldownTracker { ID = 107, Label = "ULT", SlotIndex = 7, WindowRect = new Rect(cx + 180, cy, 60, 60) });
             }
-        }
-
-        private void OnDestroy()
-        {
-            SaveConfig();
-        }
-
-        private void SaveConfig()
-        {
-            List<string> lines = new List<string>();
-            foreach(var t in Trackers)
-            {
-                lines.Add($"{t.ID}:{t.WindowRect.x}:{t.WindowRect.y}");
-            }
-            try {
-                System.IO.File.WriteAllText(configPath, string.Join("|", lines));
-            } catch {}
-        }
-
-        private void LoadConfig()
-        {
-            if (!System.IO.File.Exists(configPath)) return;
-            try {
-                string data = System.IO.File.ReadAllText(configPath);
-                string[] items = data.Split('|');
-                var tempPos = new Dictionary<int, Vector2>();
-                foreach(var item in items) {
-                    string[] parts = item.Split(':');
-                    if (parts.Length == 3 && int.TryParse(parts[0], out int id)) {
-                         if (float.TryParse(parts[1], out float tx) && float.TryParse(parts[2], out float ty))
-                             tempPos[id] = new Vector2(tx, ty);
-                    }
-                }
-                
-                // Defaults must be created first if list empty
-                 if (Trackers.Count == 0) {
-                     float cx = Screen.width / 2f; float cy = Screen.height - 150f;
-                    Trackers.Add(new CooldownTracker { ID=101, Label="1", SlotIndex=0, WindowRect=new Rect(cx-180, cy, 60, 60) });
-                    Trackers.Add(new CooldownTracker { ID=102, Label="Q", SlotIndex=1,  WindowRect=new Rect(cx-120, cy, 60, 60) });
-                    Trackers.Add(new CooldownTracker { ID=103, Label="E", SlotIndex=4,  WindowRect=new Rect(cx-60, cy, 60, 60) });
-                    Trackers.Add(new CooldownTracker { ID=104, Label="SPC", SlotIndex=2,WindowRect=new Rect(cx, cy, 60, 60) });
-                    Trackers.Add(new CooldownTracker { ID=105, Label="R", SlotIndex=5,  WindowRect=new Rect(cx+60, cy, 60, 60) }); 
-                    Trackers.Add(new CooldownTracker { ID=106, Label="C", SlotIndex=6,  WindowRect=new Rect(cx+120, cy, 60, 60) });
-                    Trackers.Add(new CooldownTracker { ID=107, Label="ULT", SlotIndex=7,WindowRect=new Rect(cx+180, cy, 60, 60) });
-                 }
-
-                 foreach(var kvp in tempPos) {
-                     var t = Trackers.Find(x => x.ID == kvp.Key);
-                     if (t != null) t.WindowRect = new Rect(kvp.Value.x, kvp.Value.y, t.WindowRect.width, t.WindowRect.height);
-                 }
-
-            } catch {}
-        }
-        
-        public void ResetPosition()
-        {
-             Trackers.Clear();
-             Start(); 
+            _initialized = true;
         }
 
         private void Update()
         {
             if (!Plugin.IsEnabled) return;
+            EnsureTrackersInitialized();
+            
             try {
                 ScanSlotsAndCooldowns();
             } catch { }
@@ -142,134 +73,79 @@ namespace MyScriptMod
         {
             InitializeWorld();
             if (_clientWorld == null || !_clientWorld.IsCreated) return;
+
+            var stQuery = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<ServerTime>());
+            if (stQuery.IsEmpty) return;
             
-            // 1. Server Time
-            double currentServerTime = 0;
-            var stQuery = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<ProjectM.ServerTime>());
-            if (!stQuery.IsEmpty)
-            {
-                var stEntity = stQuery.GetSingletonEntity();
-                currentServerTime = _entityManager.GetComponentData<ProjectM.ServerTime>(stEntity).Time;
-            }
-            else return;
+            var stEntity = stQuery.GetSingletonEntity();
+            double currentServerTime = _entityManager.GetComponentData<ServerTime>(stEntity).Time;
 
-            // 2. Player
-            if (_localPlayerEntity == Entity.Null || !_entityManager.Exists(_localPlayerEntity))
-            {
-                var pdq = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<LocalCharacter>());
-                if (pdq.IsEmpty) return;
-                _localPlayerEntity = pdq.GetSingletonEntity();
-            }
+            var pdq = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<LocalCharacter>());
+            if (pdq.IsEmpty) return;
+            _localPlayerEntity = pdq.GetSingletonEntity();
 
-            // 3. Map Slots & Check for Cooldowns Directly on Slot Entities
-            if (_entityManager.HasComponent<AbilityGroupSlotBuffer>(_localPlayerEntity))
+            if (!_entityManager.HasComponent<AbilityGroupSlotBuffer>(_localPlayerEntity)) return;
+            
+            var buffer = _entityManager.GetBuffer<AbilityGroupSlotBuffer>(_localPlayerEntity);
+            System.Text.StringBuilder debugSb = new System.Text.StringBuilder();
+
+            for (int i = 0; i < Math.Min(buffer.Length, 15); i++)
             {
-                var buffer = _entityManager.GetBuffer<AbilityGroupSlotBuffer>(_localPlayerEntity);
-                for (int i = 0; i < Math.Min(buffer.Length, 15); i++)
+                Entity groupEntity = buffer[i].GroupSlotEntity._Entity;
+                float foundRemaining = -999f;
+                float foundDuration = 5.0f;
+                string abilityName = "Unknown";
+
+                if (_entityManager.Exists(groupEntity) && _entityManager.HasComponent<AbilityGroupSlot>(groupEntity))
                 {
-                    Entity groupEntity = buffer[i].GroupSlotEntity._Entity;
-                    string derivedName = "";
-                    float foundRemaining = -999f;
-                    float foundDuration = 8.0f;
+                    var slotData = _entityManager.GetComponentData<AbilityGroupSlot>(groupEntity);
+                    Entity stateEnt = slotData.StateEntity._Entity;
 
-                    // Inner Function
-                    void Check(Entity target) {
-                        if (target != Entity.Null && _entityManager.Exists(target) && _entityManager.HasComponent<AbilityCooldownState>(target)) {
-                            var cd = _entityManager.GetComponentData<AbilityCooldownState>(target);
-                            if (cd.CooldownEndTime > 0) {
-                                double r = cd.CooldownEndTime - currentServerTime;
-                                if (r > -5.0 && r < 600.0) {
-                                    foundRemaining = (float)r;
-                                    if (_entityManager.HasComponent<Stunlock.Core.PrefabGUID>(target)) {
-                                        var g = _entityManager.GetComponentData<Stunlock.Core.PrefabGUID>(target);
-                                        foundDuration = AbilityDatabase.GetDuration(g);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Check Group Entity
-                    Check(groupEntity);
-
-                    if (_entityManager.Exists(groupEntity) && _entityManager.HasComponent<AbilityGroupSlot>(groupEntity))
+                    if (_entityManager.Exists(stateEnt))
                     {
-                        var slotData = _entityManager.GetComponentData<AbilityGroupSlot>(groupEntity);
-                        Entity stateEnt = slotData.StateEntity._Entity;
-
-                        // Check State Entity
-                        Check(stateEnt);
-
-                        if (_entityManager.Exists(stateEnt) && _entityManager.HasComponent<Stunlock.Core.PrefabGUID>(stateEnt))
+                        // Get Name
+                        if (_entityManager.HasComponent<PrefabGUID>(stateEnt))
                         {
-                            var guid = _entityManager.GetComponentData<Stunlock.Core.PrefabGUID>(stateEnt);
-                            if (AbilityDatabase.TryGetName(guid, out string n)) derivedName = n;
-                            else derivedName = $"ID: {guid.GuidHash}";
+                            var guid = _entityManager.GetComponentData<PrefabGUID>(stateEnt);
+                            abilityName = $"ID: {guid.GuidHash}";
                         }
-                    }
-                    if (i < _slotNames.Length) _slotNames[i] = derivedName ?? "";
-                    
-                    // Assign to Trackers
-                    foreach(var t in Trackers) {
-                        if (t.SlotIndex == i) {
-                            t.RemainingTime = foundRemaining;
-                            t.MaxDuration = foundDuration;
-                            t.AbilityName = derivedName;
+
+                        // Get Cooldown
+                        if (_entityManager.HasComponent<AbilityCooldownState>(stateEnt))
+                        {
+                            var cd = _entityManager.GetComponentData<AbilityCooldownState>(stateEnt);
+                            foundRemaining = (float)(cd.CooldownEndTime - currentServerTime);
                         }
                     }
                 }
+
+                foreach (var t in Trackers)
+                {
+                    if (t.SlotIndex == i)
+                    {
+                        t.RemainingTime = foundRemaining;
+                        t.MaxDuration = foundDuration;
+                        t.AbilityName = abilityName;
+                    }
+                }
             }
-            
-            // Update Debug Log
-            if (ShowDebug) {
-                 System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                 foreach(var t in Trackers) {
-                     sb.AppendLine($"Slot {t.SlotIndex} ({t.Label}): {t.AbilityName} | Rem: {t.RemainingTime:F1}");
-                 }
-                 _debugLog = sb.ToString();
-            }
+            if (ShowDebug) _debugLog = debugSb.ToString();
         }
 
         private void OnGUI()
         {
-            if (!Plugin.IsEnabled) return;
-            if (!ShowOverlay) return;
+            if (!Plugin.IsEnabled || !ShowOverlay || !_initialized) return;
 
-            bool unlocked = Menu.UnlockUI;
-
-            for (int i=0; i < Trackers.Count; i++)
+            for (int i = 0; i < Trackers.Count; i++)
             {
                 var t = Trackers[i];
-                bool show = unlocked || (t.RemainingTime > -2.0f && t.RemainingTime < 600.0f && t.RemainingTime != -999f);
-                
+                bool show = Menu.UnlockUI || (t.RemainingTime > -1.5f && t.RemainingTime < 600.0f && t.RemainingTime != -999f);
                 if (show)
                 {
-                    GUI.backgroundColor = unlocked ? new Color(0,0,0,0.5f) : Color.clear;
-                    GUI.contentColor = Color.white; 
+                    GUI.backgroundColor = Menu.UnlockUI ? new Color(0, 0, 0, 0.5f) : Color.clear;
                     t.WindowRect = GUI.Window(t.ID, t.WindowRect, (GUI.WindowFunction)DrawSingleTracker, "");
                 }
             }
-            
-            if (unlocked)
-            {
-                if (GUI.Button(new Rect(Screen.width/2 - 50, 10, 100, 30), "Toggle Debug")) 
-                    ShowDebug = !ShowDebug;
-            }
-
-            if (ShowDebug)
-            {
-                GUI.backgroundColor = Color.black;
-                GUI.Window(99999, new Rect(10, 10, 400, 800), (GUI.WindowFunction)DrawDebugWindow, "DEBUG DATA");
-            }
-        }
-
-        private void DrawDebugWindow(int id)
-        {
-            GUI.DragWindow(new Rect(0,0, 10000, 20));
-            GUILayout.BeginVertical();
-            GUILayout.Label("<b>TRACKER STATES</b>");
-            GUILayout.Label(_debugLog);
-            GUILayout.EndVertical();
         }
 
         private void DrawSingleTracker(int id)
@@ -279,45 +155,25 @@ namespace MyScriptMod
 
             if (Menu.UnlockUI)
             {
-                GUI.DragWindow(new Rect(0,0, 10000, 20));
-                GUI.Label(new Rect(0,0,t.WindowRect.width, 20), t.Label, CenteredStyle());
-                GUI.Label(new Rect(0,25,t.WindowRect.width, 20), "DRAG", CenteredStyle());
+                GUI.DragWindow(new Rect(0, 0, 10000, 20));
+                GUI.Label(new Rect(0, 0, t.WindowRect.width, 20), new GUIContent(t.Label), GetStyle(12));
+                GUI.Label(new Rect(0, 25, t.WindowRect.width, 20), new GUIContent("DRAG"), GetStyle(10));
                 return;
             }
 
-            float rem = t.RemainingTime;
-            float max = t.MaxDuration;
-            if (max < 0.1f) max = 1f;
+            string text = t.RemainingTime > 0 ? t.RemainingTime.ToString("F1") : "RDY";
+            Color c = t.RemainingTime > 0 ? new Color(1f, 0.4f, 0.4f, 1f) : new Color(0.4f, 1f, 0.4f, 1f);
 
-            Color c = Color.gray;
-            string text = "";
-
-            if (rem > 0)
-            {
-                 float ratio = rem / max;
-                 if (ratio > 0.5f) c = new Color(0.8f, 0.2f, 0.2f, 0.9f); 
-                 else if (rem > 2.0f) c = new Color(0.9f, 0.8f, 0.2f, 0.9f);
-                 else c = new Color(0.2f, 0.8f, 0.3f, 0.9f); 
-                 text = rem.ToString("F1");
-            }
-            else if (rem > -2.0f) 
-            {
-                 c = new Color(0.2f, 1.0f, 0.4f, 1.0f);
-                 text = "RDY";
-            }
-            
-            var old = GUI.color;
+            var oldColor = GUI.color;
             GUI.color = c;
-            GUI.Box(new Rect(0,0, t.WindowRect.width, t.WindowRect.height), "");
-            
+            GUI.Box(new Rect(0, 0, t.WindowRect.width, t.WindowRect.height), "");
             GUI.color = Color.white;
-            GUI.Label(new Rect(0,0, t.WindowRect.width, t.WindowRect.height), text, CenteredStyle(16));
-            GUI.Label(new Rect(0, t.WindowRect.height - 15, t.WindowRect.width, 15), t.Label, CenteredStyle(10));
-            GUI.color = old;
+            GUI.Label(new Rect(0, 0, t.WindowRect.width, t.WindowRect.height), new GUIContent(text), GetStyle(16));
+            GUI.color = oldColor;
         }
 
         private GUIStyle _style;
-        private GUIStyle CenteredStyle(int size = 12)
+        private GUIStyle GetStyle(int size)
         {
             if (_style == null) _style = new GUIStyle();
             _style.alignment = TextAnchor.MiddleCenter;
@@ -326,21 +182,46 @@ namespace MyScriptMod
             _style.normal.textColor = Color.white;
             return _style;
         }
-        
+
         private void InitializeWorld()
         {
-            if (_clientWorld == null)
+            if (_clientWorld != null && _clientWorld.IsCreated) return;
+            foreach (var w in World.All)
             {
-                foreach(var w in World.All)
+                if (w.Name == "Client_0")
                 {
-                    if (w.Name == "Client_0")
-                    {
-                        _clientWorld = w;
-                        _entityManager = w.EntityManager;
-                        break;
-                    }
+                    _clientWorld = w;
+                    _entityManager = w.EntityManager;
+                    break;
                 }
             }
         }
+
+        private void LoadConfig() 
+        { 
+            if (!System.IO.File.Exists(configPath)) return;
+            try {
+                string data = System.IO.File.ReadAllText(configPath);
+                string[] items = data.Split('|');
+                foreach(var item in items) {
+                    string[] parts = item.Split(':');
+                    if (parts.Length == 3 && int.TryParse(parts[0], out int id)) {
+                        var t = Trackers.Find(x => x.ID == id);
+                        if (t != null && float.TryParse(parts[1], out float tx) && float.TryParse(parts[2], out float ty))
+                            t.WindowRect = new Rect(tx, ty, t.WindowRect.width, t.WindowRect.height);
+                    }
+                }
+            } catch {}
+        }
+        
+        private void SaveConfig() 
+        {
+            List<string> lines = new List<string>();
+            foreach(var t in Trackers) lines.Add($"{t.ID}:{t.WindowRect.x}:{t.WindowRect.y}");
+            try { System.IO.File.WriteAllText(configPath, string.Join("|", lines)); } catch {}
+        }
+
+        private void OnDestroy() { SaveConfig(); }
+        public void ResetPosition() { Trackers.Clear(); _initialized = false; EnsureTrackersInitialized(); }
     }
 }

@@ -4,10 +4,8 @@ using BepInEx.Unity.IL2CPP;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
 using UnityEngine;
 using BepInEx.Logging;
-using System.Collections;
-using System.Runtime.InteropServices;
 using System;
-using ProjectM;
+using System.Collections;
 
 namespace MyScriptMod;
 
@@ -32,33 +30,27 @@ public class Plugin : BasePlugin
         WaitBeforeE = Config.Bind("Timings", "WaitBeforeE", 4.90f, "Time until E starts spamming.");
         SpamDuration = Config.Bind("Timings", "SpamDuration", 0.2f, "How long to spam E.");
 
-        IL2CPPChainloader.AddUnityComponent<MacroController>();
-        IL2CPPChainloader.AddUnityComponent<EspFeature>();
-        IL2CPPChainloader.AddUnityComponent<ScriptManager>(); 
-        IL2CPPChainloader.AddUnityComponent<Menu>();
-
-        // Capture Instances
-        try {
-            var cd = IL2CPPChainloader.AddUnityComponent<CooldownOverlay>();
-            if (cd != null) 
-            {
-                CooldownOverlay.Instance = cd;
-                Log.LogInfo("CooldownOverlay Added & Instance Set.");
-            }
-            else Log.LogError("CooldownOverlay Add Failed (Returned Null)");
-        } catch (Exception e) { Log.LogError($"CooldownOverlay Init Error: {e.Message}"); }
-
-        try {
-            var zoom = IL2CPPChainloader.AddUnityComponent<ZoomHack>();
-            if (zoom != null) ZoomHack.Instance = zoom;
-        } catch {}
-
-        IL2CPPChainloader.AddUnityComponent<DebugScanner>();
+        // Add all components
+        RegisterComponent<MacroController>();
+        RegisterComponent<CooldownOverlay>();
+        RegisterComponent<Menu>();
         
-        Log.LogInfo("Mod Loaded (Reverted to IL2CPPChainloader) - Safe Init");
+        // Add optional components if they exist in your project
+        try { RegisterComponent<EspFeature>(); } catch {}
+        try { RegisterComponent<ScriptManager>(); } catch {}
+        try { RegisterComponent<ZoomHack>(); } catch {}
+
+        Log.LogInfo("Mod Loaded Successfully.");
+    }
+
+    // Renamed to RegisterComponent to avoid the CS0108 Warning
+    private T RegisterComponent<T>() where T : MonoBehaviour
+    {
+        return IL2CPPChainloader.AddUnityComponent<T>();
     }
 }
 
+// --- MACRO LOGIC ---
 public class MacroController : MonoBehaviour
 {
     private bool _isRunning = false;
@@ -69,7 +61,6 @@ public class MacroController : MonoBehaviour
         if (Input.GetKeyDown(Plugin.TriggerKey.Value))
         {
             if (_isRunning) { StopSequence("Toggled Off"); return; }
-            Plugin.Instance.Config.Reload();
             StartCoroutine(SequenceRoutine().WrapToIl2Cpp());
         }
 
@@ -87,9 +78,8 @@ public class MacroController : MonoBehaviour
     private IEnumerator SequenceRoutine()
     {
         _isRunning = true;
-        Plugin.Logger.LogInfo(">>> Started");
+        Plugin.Logger.LogInfo(">>> Macro Started");
 
-        // --- STEP 1: O + 9 ---
         _isMacroTyping = true; 
         Win32.SendScanCode(0x18, true); // O Down
         yield return new WaitForSeconds(0.15f); 
@@ -102,7 +92,6 @@ public class MacroController : MonoBehaviour
         
         yield return new WaitForSeconds(Plugin.DelayAfterO9.Value);
 
-        // --- STEP 2: Mouse 4 ---
         if (!_isRunning) yield break;
         
         _isMacroTyping = true;
@@ -110,32 +99,21 @@ public class MacroController : MonoBehaviour
         yield return new WaitForSeconds(0.06f); 
         Win32.SendMouseInput(Win32.MOUSEEVENTF_XUP, Win32.XBUTTON1);
         _isMacroTyping = false;
-        
-        Plugin.Logger.LogInfo("Mouse 4 Clicked");
 
-        // --- STEP 3: High Precision Wait ---
         float startTime = Time.time;
-        float waitDuration = Plugin.WaitBeforeE.Value;
-
-        while (Time.time - startTime < waitDuration)
+        while (Time.time - startTime < Plugin.WaitBeforeE.Value)
         {
             if (!_isRunning) yield break; 
             yield return null; 
         }
 
-        // --- STEP 4: Buffered Input (Spam E) ---
         if (!_isRunning) yield break;
 
-        Plugin.Logger.LogInfo("Buffering E...");
         _isMacroTyping = true;
-
         float spamStart = Time.time;
-        float spamTime = Plugin.SpamDuration.Value;
-
-        while (Time.time - spamStart < spamTime)
+        while (Time.time - spamStart < Plugin.SpamDuration.Value)
         {
             if (!_isRunning) break;
-
             Win32.SendScanCode(0x12, true); 
             yield return new WaitForSeconds(0.02f); 
             Win32.SendScanCode(0x12, false); 
@@ -143,9 +121,8 @@ public class MacroController : MonoBehaviour
         }
         
         _isMacroTyping = false;
-        Plugin.Logger.LogInfo("E Sequence Finished");
-
         _isRunning = false;
+        Plugin.Logger.LogInfo("Macro Finished");
     }
 
     private void StopSequence(string reason)
