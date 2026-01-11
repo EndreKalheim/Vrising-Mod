@@ -1,11 +1,10 @@
 using System;
-using UnityEngine;
-using BepInEx;
-using BepInEx.Unity.IL2CPP;
 using Unity.Entities;
 using Unity.Collections;
-using Unity.Transforms;
 using ProjectM;
+using ProjectM.Network;
+using UnityEngine;
+using BepInEx;
 
 namespace MyScriptMod
 {
@@ -16,74 +15,70 @@ namespace MyScriptMod
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F9))
-            {
-                ScanForMapIcons();
-            }
+            if (Input.GetKeyDown(KeyCode.F11)) RunDeepScan();
         }
 
-        private void ScanForMapIcons()
+        private void RunDeepScan()
         {
             InitializeWorld();
             if (_clientWorld == null) return;
-            
-            Plugin.Logger.LogInfo("--- SCANNING FOR MAP ICONS ---");
 
-            // Strategy: Iterate ALL entities, look for "Map" or "Icon" components.
-            // We want to identify the Component Type that makes things show on the minimap.
+            Plugin.Logger.LogInfo("=== CHECKING ABILITY BUFFERS (F11) ===");
+
+            var userQuery = _entityManager.CreateEntityQuery(ComponentType.ReadOnly<User>(), ComponentType.ReadOnly<LocalUser>());
+            if (userQuery.IsEmpty) return;
             
-            var allEnts = _entityManager.GetAllEntities(Allocator.Temp);
-            int count = 0;
-            
-            foreach(var e in allEnts)
+            Entity userEntity = userQuery.GetSingletonEntity();
+            User userData = _entityManager.GetComponentData<User>(userEntity);
+            Entity playerCharacter = userData.LocalCharacter._Entity;
+
+            if (_entityManager.HasComponent<AbilityGroupSlotBuffer>(playerCharacter))
             {
-                var types = _entityManager.GetComponentTypes(e);
-                bool isMapRelated = false;
-                string foundType = "";
-                
-                foreach(var t in types)
+                var buffer = _entityManager.GetBuffer<AbilityGroupSlotBuffer>(playerCharacter);
+
+                // Check slots 0 to 6
+                for (int i = 0; i < Math.Min(buffer.Length, 7); i++)
                 {
-                    string name = t.ToString();
-                    if (name.IndexOf("MapIcon", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        name.IndexOf("Minimap", StringComparison.OrdinalIgnoreCase) >= 0)
+                    var slotData = buffer[i];
+                    Entity groupEnt = slotData.GroupSlotEntity._Entity;
+
+                    if (_entityManager.HasComponent<AbilityGroupSlot>(groupEnt))
                     {
-                        isMapRelated = true;
-                        foundType = name;
-                        break;
+                        var groupSlotComp = _entityManager.GetComponentData<AbilityGroupSlot>(groupEnt);
+                        Entity stateEnt = groupSlotComp.StateEntity._Entity;
+
+                        if (_entityManager.Exists(stateEnt) && _entityManager.HasBuffer<AbilityGroupStartAbilitiesBuffer>(stateEnt))
+                        {
+                            var abilityBuffer = _entityManager.GetBuffer<AbilityGroupStartAbilitiesBuffer>(stateEnt);
+                            
+                            Plugin.Logger.LogInfo($"--- SLOT {i} CONTAINS ---");
+                            foreach(var abilityItem in abilityBuffer)
+                            {
+                                // TRY THIS: .PrefabGUID
+                                var guid = abilityItem.PrefabGUID; 
+                                
+                                string name = "Unknown";
+                                // Note: Ensure you have an AbilityDatabase or similar helper to read names, 
+                                // otherwise just log the GUID hash.
+                                Plugin.Logger.LogInfo($"   > Ability GUID: {guid.GuidHash}");
+                            }
+                        }
                     }
                 }
-                
-                if (isMapRelated)
-                {
-                    // Check if it has a position
-                    bool hasPos = _entityManager.HasComponent<LocalToWorld>(e) || _entityManager.HasComponent<Translation>(e);
-                    
-                    Plugin.Logger.LogInfo($"[Ent {e.Index}] Has {foundType} | HasPos: {hasPos}");
-                    
-                    // Limit output
-                    count++;
-                    if (count > 50) break;
-                }
-                
-                types.Dispose();
             }
-            allEnts.Dispose();
-            
-            if (count == 0) Plugin.Logger.LogInfo("No Map/Icon components found.");
+            Plugin.Logger.LogInfo("=== SCAN COMPLETE ===");
         }
 
         private void InitializeWorld()
         {
-            if (_clientWorld == null)
+            if (_clientWorld != null) return;
+            foreach (var w in World.All)
             {
-                foreach(var w in World.All)
+                if (w.Name == "Client_0")
                 {
-                    if (w.Name == "Client_0")
-                    {
-                        _clientWorld = w;
-                        _entityManager = w.EntityManager;
-                        break;
-                    }
+                    _clientWorld = w;
+                    _entityManager = w.EntityManager;
+                    return;
                 }
             }
         }
